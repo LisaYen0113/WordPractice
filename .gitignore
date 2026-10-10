@@ -1,0 +1,21 @@
+# 環境變數(含金鑰,絕不進版控)
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+.coverage
+.pytest_cache/
+
+# 執行期資料/日誌
+logs/
+
+# OS
+.DS_Store
+Thumbs.db

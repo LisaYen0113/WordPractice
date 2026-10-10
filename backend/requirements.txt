@@ -1,0 +1,7 @@
+fastapi 
+uvicorn 
+pydantic 
+requests 
+google-genai
+python-dotenv
+PyJWT[crypto]>=2.10.1,<3

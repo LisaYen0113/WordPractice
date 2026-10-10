@@ -1,0 +1,12 @@
+# 環境變數(含金鑰,絕不進版控)
+.env
+.env.*
+!.env.example
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+
+# 日誌與執行期資料
+logs/
