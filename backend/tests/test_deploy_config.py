@@ -1,5 +1,6 @@
 """部署設定檔的護欄。放在後端測試是因為這裡是唯一會固定跑測試的地方,
 不為了驗四個設定檔另建一套前端測試工具。"""
+import json
 import re
 from pathlib import Path
 
@@ -71,3 +72,39 @@ def test_fly_health_check_hits_health_endpoint():
 
 def test_fly_primary_region_is_tokyo():
     assert 'primary_region = "nrt"' in _fly_toml()
+
+
+VERCEL_JSON = REPO_ROOT / "frontend" / "my-app" / "vercel.json"
+
+
+def _vercel_config() -> dict:
+    return json.loads(VERCEL_JSON.read_text(encoding="utf-8"))
+
+
+def test_vercel_rewrites_api_prefix_to_fly():
+    """:path* 會吃掉 /api 前綴,所以後端路由維持 /words、/tests 不動"""
+    rewrites = _vercel_config()["rewrites"]
+
+    assert len(rewrites) == 1
+    assert rewrites[0]["source"] == "/api/:path*"
+    assert rewrites[0]["destination"].endswith(".fly.dev/:path*")
+
+
+def test_vercel_disables_rewrite_caching_for_api():
+    """Vercel 對新專案預設採信外部來源的 cache 標頭 —— /words/deck 是
+    每個使用者自己的單字,被 CDN 快取就是跨使用者外洩"""
+    headers = _vercel_config()["headers"]
+    api_headers = [h for h in headers if h["source"] == "/api/:path*"]
+
+    assert len(api_headers) == 1
+    keys = {h["key"]: h["value"] for h in api_headers[0]["headers"]}
+    assert keys["x-vercel-enable-rewrite-caching"] == "0"
+
+
+def test_vercel_caching_optout_covers_every_rewrite():
+    """改 rewrite 的 source 卻忘了改 headers 的 source,就會無聲漏掉快取防護"""
+    config = _vercel_config()
+    header_sources = {h["source"] for h in config["headers"]}
+
+    for rewrite in config["rewrites"]:
+        assert rewrite["source"] in header_sources
