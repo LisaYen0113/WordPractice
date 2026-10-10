@@ -7,6 +7,13 @@ from dotenv import load_dotenv
 # 載入 backend/.env(不覆蓋已存在的環境變數,正式環境可直接用系統環境變數)
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
+# 可寫資料目錄(log 與失敗佇列)。不設 DATA_DIR 時指回 backend/,本機行為不變;
+# 正式環境設成 Fly volume(例如 /data),重新部署才留得住 log 與待重試的單字。
+# 刻意不加 parents=True:上層目錄不存在代表 volume 沒掛上,要當場失敗,
+# 不能靜默退回容器暫存區(那樣下次部署就無聲遺失)
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+DATA_DIR = Path(os.getenv("DATA_DIR", "").strip() or BACKEND_DIR)
+
 
 def _require_env(name: str) -> str:
     """讀取必要環境變數;缺少時立即報錯,避免金鑰再被寫回程式碼"""

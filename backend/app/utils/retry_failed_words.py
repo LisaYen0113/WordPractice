@@ -10,14 +10,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from app.core.config import DATA_DIR
 from app.core.logger import logger
 from app.daos.words_dao import insert_word
 from app.schemas.words import NewWordRequest
 
 BOM_CHAR = chr(0xFEFF)  # UTF-8 BOM 解碼後的字元
 
-# 以 backend 目錄為基準，不受啟動時 CWD 影響
-FAILED_LOG_FILE = Path(__file__).resolve().parents[2] / "logs" / "failed_words.jsonl"
+# 位置由 DATA_DIR 決定(本機 = backend/logs;正式環境 = Fly volume)
+FAILED_LOG_FILE = DATA_DIR / "logs" / "failed_words.jsonl"
 
 # 資料庫支持的欄位
 DB_FIELDS = [

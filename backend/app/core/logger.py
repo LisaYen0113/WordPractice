@@ -1,10 +1,11 @@
 import logging
 import re
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
-# 以 backend 目錄為基準,不受啟動時 CWD 影響(與 config.py 同做法)
-LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
+from app.core.config import DATA_DIR
+
+# 位置由 DATA_DIR 決定(本機 = backend/logs;正式環境 = Fly volume)
+LOG_DIR = DATA_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 LOG_FILE = LOG_DIR / "words_api.log"
