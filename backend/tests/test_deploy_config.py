@@ -108,3 +108,12 @@ def test_vercel_caching_optout_covers_every_rewrite():
 
     for rewrite in config["rewrites"]:
         assert rewrite["source"] in header_sources
+
+
+def test_vercel_destination_matches_fly_app_name():
+    """Task 7 手動填兩個 CHANGEME- 時最容易漏的一組:名字不一致 = 整個網站的
+    /api 全打到不存在的位址,而其他護欄還是全綠"""
+    app = re.search(r'^app\s*=\s*"([^"]+)"', _fly_toml(), re.M).group(1)
+    destination = _vercel_config()["rewrites"][0]["destination"]
+
+    assert destination == f"https://{app}.fly.dev/:path*"
