@@ -9,6 +9,7 @@ from app.core.config import GEMINI_MODEL
 from app.core.logger import logger
 from app.routes.words_route import router as words_router
 from app.routes.tests_route import router as tests_router
+from app.routes.folders_route import router as folders_router
 
 # 這次的事故模式是「模型被 Google 悄悄停用,請求時才 404」→
 # 啟動時就把生效的模型名記進 log,出問題一眼可查 env 有沒有吃到
@@ -88,6 +89,14 @@ app.add_middleware(
 
 app.include_router(words_router, prefix="/words")
 app.include_router(tests_router, prefix="/tests")
+app.include_router(folders_router, prefix="/folders")
+
+
+@app.get("/health")
+async def health():
+    """Fly 的健康檢查:不驗身分、不碰資料庫,只證明行程活著"""
+    return {"status": "ok"}
+
 
 # 伺服器啟動
 if __name__ == "__main__":
