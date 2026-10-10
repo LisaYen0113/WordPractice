@@ -32,13 +32,14 @@ app = FastAPI(
 )
 
 
-def _apply_cors_for_error(request: Request, response: JSONResponse) -> JSONResponse:
-    """未預期例外的回應不經過 CORSMiddleware(它在 middleware 內層),
-    這裡手動補上 CORS 標頭,否則瀏覽器只會看到 network error。"""
+def _apply_error_headers(request: Request, response: JSONResponse) -> JSONResponse:
+    """未預期例外的回應不經過任何使用者 middleware(ServerErrorMiddleware 在最外層),
+    這裡手動補上標頭,否則瀏覽器只會看到 network error、CDN 也可能快取。"""
     origin = request.headers.get("origin")
     if origin in ALLOWED_ORIGINS:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Vary"] = "Origin"
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -50,7 +51,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         exc_info=exc,
     )
     response = JSONResponse(status_code=500, content={"detail": "Internal server error"})
-    return _apply_cors_for_error(request, response)
+    return _apply_error_headers(request, response)
 
 
 # 驗證失敗:不原封回顯輸入(input/ctx 可能含超長內容或殘缺代理對),只留欄位與原因
@@ -86,6 +87,16 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Retry-After"],  # 429 的重試秒數要讓瀏覽器 JS 讀得到
 )
+
+# 必須在 CORS 之後 add:Starlette 最後 add 的是最外層,這樣才會連
+# limit_body_size 產生的 411/413 都蓋到。Vercel 的 rewrite 預設採信上游
+# cache 標頭,這行擋掉跨使用者快取
+@app.middleware("http")
+async def no_store(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 
 app.include_router(words_router, prefix="/words")
 app.include_router(tests_router, prefix="/tests")
