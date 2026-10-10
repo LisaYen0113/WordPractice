@@ -17,6 +17,10 @@ from app.daos.user_words_dao import update_user_word_folder
 # 409 會透傳給使用者(client.js 直接採用 detail)→ 在這裡換成看得懂的中文。
 _DUPLICATE_NAME = "已經有同名資料夾"
 
+# 「資料夾不存在」對外用同一句話:擁有權驗不過、以及 assign 途中資料夾被刪掉,
+# 都回這一句 —— 兩種情況都不該洩漏「這個 id 存在,只是不是你的/剛被刪」。
+_FOLDER_NOT_FOUND = "找不到這個資料夾"
+
 
 def _translate_unique_violation(error: HTTPException) -> HTTPException:
     """409(unique violation)→ 中文訊息;其他狀態碼原樣往上拋"""
@@ -59,13 +63,25 @@ def assign_folder(
 
     FK 只保證資料夾存在,不保證是我的 → 這裡自己驗。驗不過一律 404,
     不用 403:不洩漏「這個 id 存在,只是不是你的」。
+
+    上面的檢查與下面的寫入之間有縫:資料夾若在這段期間被刪掉,寫入會撞 FK
+    → PostgREST 409 + 通用英文 detail,原樣透傳就是英文外洩到畫面。
+    語意上資料夾已經不存在 → 換成與擁有權檢查同一句中文 404。
     """
     if folder_id is not None and not get_folder(str(user_id), str(folder_id)):
-        raise HTTPException(status_code=404, detail="找不到這個資料夾")
+        raise HTTPException(status_code=404, detail=_FOLDER_NOT_FOUND)
 
-    row = update_user_word_folder(
-        str(user_id),
-        str(word_id),
-        str(folder_id) if folder_id is not None else None,
-    )
+    try:
+        row = update_user_word_folder(
+            str(user_id),
+            str(word_id),
+            str(folder_id) if folder_id is not None else None,
+        )
+    except HTTPException as error:
+        # 只有 409(FK 違反)改寫;DAO 自己的 404 等其他錯誤原樣往上拋
+        if error.status_code == 409:
+            raise HTTPException(
+                status_code=404, detail=_FOLDER_NOT_FOUND
+            ) from error
+        raise
     return {"word_id": word_id, "folder_id": row["folder_id"]}

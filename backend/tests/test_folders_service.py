@@ -19,6 +19,12 @@ _DUPLICATE_DETAIL = "已經有同名資料夾"
 # DAO 實際會丟的 409：supabase_request 的 detail 刻意通用，避免洩漏 schema
 _UPSTREAM_409 = "Database request failed"
 
+# 同樣刻意抄字面值：assign 的兩種「資料夾不存在」都必須是這一句中文
+_FOLDER_NOT_FOUND = "找不到這個資料夾"
+
+# user_words_dao.update_user_word_folder 找不到列時丟的 404（assign 要原樣穿過）
+_WORD_NOT_IN_LIST = "這個字不在你的單字庫中"
+
 
 def _fake_dao(monkeypatch, name, result=None, error=None):
     """換掉 folders_service 裡的 DAO 符號，回傳呼叫紀錄。
@@ -151,3 +157,37 @@ def test_service_stringifies_ids_for_dao(monkeypatch, dao_name, invoke):
     assert not any(isinstance(arg, uuid.UUID) for arg in seen["args"])
     if dao_name in ("rename_folder", "delete_folder"):
         assert str(folder_id) in seen["args"]
+
+
+def test_assign_folder_translates_race_409_to_chinese_404(monkeypatch):
+    """指派途中資料夾被刪掉 → FK 違反的 409 是英文，必須換成中文 404
+
+    這是 409 的第二個生產者（第一個是名稱重複，走 _translate_unique_violation）：
+    get_folder 過關之後、寫入之前資料夾消失 → PostgREST 409 + 通用英文 detail。
+    client.js 的 409 分支直接採用 detail，原樣透傳就是英文外洩到畫面。
+    語意上資料夾已經不存在 → 404，與擁有權檢查用同一句話（不洩漏存在性）。
+    """
+    _fake_dao(monkeypatch, "get_folder", result={"id": "f-1"})
+    _fake_dao(
+        monkeypatch,
+        "update_user_word_folder",
+        error=HTTPException(status_code=409, detail=_UPSTREAM_409),
+    )
+
+    with pytest.raises(HTTPException) as excinfo:
+        folders_service.assign_folder(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+
+    assert excinfo.value.status_code == 404
+    assert excinfo.value.detail == _FOLDER_NOT_FOUND
+
+
+def test_assign_folder_preserves_non_409(monkeypatch):
+    """只有 409 被改寫：DAO 自己的 404（這個字不在你的單字庫中）原樣往上拋"""
+    original = HTTPException(status_code=404, detail=_WORD_NOT_IN_LIST)
+    _fake_dao(monkeypatch, "get_folder", result={"id": "f-1"})
+    _fake_dao(monkeypatch, "update_user_word_folder", error=original)
+
+    with pytest.raises(HTTPException) as excinfo:
+        folders_service.assign_folder(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+
+    assert excinfo.value is original

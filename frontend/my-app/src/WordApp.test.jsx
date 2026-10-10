@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -66,6 +68,8 @@ const hookState = {
   setFolder: jest.fn(),
   folderPending: {},
   folderErrors: {},
+  // 真 hook 一定提供它;刪資料夾的路徑會呼叫,少了這個鍵 mock 就與真介面不符
+  clearFolder: jest.fn(),
 };
 
 // jest(react-scripts)不載入 .env.local → 這裡自己控制 process.env,測完還原
@@ -396,6 +400,84 @@ test("刪掉正在瀏覽的資料夾 → 篩選退回「全部」", async () => 
   // 退回全部 → 兩顆字都回來了,畫面不會停在一個已刪除的資料夾
   expect(screen.getByText("banana")).toBeInTheDocument();
   expect(screen.getByText("apple")).toBeInTheDocument();
+});
+
+// 釘住:刪除資料夾成功後沒有把那些字的 folderId 清成 null(DB 的 ON DELETE SET NULL
+// 只發生在 DB)—— 它們會帶著已刪資料夾的 uuid 繼續活在前端,於是「未分類」篩選把它們
+// 整批排除、chip 也少算,而確認框才剛承諾「裡面的字會回到未分類」。
+// 既有的刪除測試只在「全部」視圖下斷言,永遠看不到這個 bug。
+test("刪掉資料夾後,裡面的字回到「未分類」篩選,計數也含它們", async () => {
+  // 這顆假 hook 會在 clearFolder 時真的更新 words —— 唯一能穿過
+  // 「WordApp → useReviewWords」這條線的寫法;不呼叫 clearFolder 就留著死 uuid,
+  // 下面的斷言必定失敗(這正是要釘住的 bug)
+  useReviewWords.mockImplementation(() => {
+    const [words, setWords] = useState([
+      { ...WORD_NEW, id: "w-a", word: "apple", folderId: "f-a" },
+      { ...WORD_NEW, id: "w-b", word: "banana", folderId: null },
+    ]);
+    const clearFolder = (folderId) =>
+      setWords((prev) =>
+        prev.map((word) =>
+          word.folderId === folderId ? { ...word, folderId: null } : word
+        )
+      );
+    return { ...hookState, words, clearFolder };
+  });
+
+  render(<WordApp />);
+  await screen.findByRole("button", { name: /TOEIC/ });
+
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: /TOEIC/ }));
+  });
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: "編輯 TOEIC" }));
+  });
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: "刪除資料夾" }));
+  });
+  await act(async () => {
+    userEvent.click(screen.getByRole("button", { name: "確定刪除" }));
+  });
+
+  // 刪除後退回「全部」;使用者下一步最自然的動作就是點「未分類」驗證那句承諾
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: /未分類/ }));
+  });
+
+  expect(screen.getByText("apple")).toBeInTheDocument();
+  expect(screen.getByText("banana")).toBeInTheDocument();
+  // 未分類的計數要含 apple:顯示 1 就是少算了
+  expect(screen.getByRole("button", { name: /未分類/ })).toHaveTextContent("2");
+});
+
+// 釘住:刪除失敗卻照樣清掉 folderId —— 前端說「未分類」,DB 裡的字其實還在那個資料夾,
+// 重新載入又跳回去(兩個互相矛盾的真相)
+test("刪除資料夾失敗 → 不清掉字的 folderId", async () => {
+  const clearFolder = jest.fn();
+  deleteFolder.mockRejectedValueOnce({
+    code: "SERVER",
+    message: "伺服器發生錯誤,請稍後再試",
+  });
+  useReviewWords.mockReturnValue({ ...hookState, clearFolder });
+
+  render(<WordApp />);
+  await screen.findByRole("button", { name: /TOEIC/ });
+
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: /TOEIC/ }));
+  });
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: "編輯 TOEIC" }));
+  });
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: "刪除資料夾" }));
+  });
+  await act(async () => {
+    userEvent.click(screen.getByRole("button", { name: "確定刪除" }));
+  });
+
+  expect(clearFolder).not.toHaveBeenCalled();
 });
 
 // 釘住:詳情頁的 chip 若把參數順序寫反(或接到別顆字的 id),會把字指派到錯的資料夾

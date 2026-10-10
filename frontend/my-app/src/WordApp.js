@@ -51,6 +51,7 @@ export default function WordApp() {
     setFolder,
     folderPending,
     folderErrors,
+    clearFolder,
   } = useReviewWords();
 
   const {
@@ -133,7 +134,15 @@ export default function WordApp() {
   // 否則畫面會卡在一個不存在的 id 上變空白
   const handleDeleteFolder = async (folderId) => {
     const ok = await removeFolder(folderId);
-    if (ok && folderFilter === folderId) {
+    if (!ok) {
+      // 失敗時畫面上這批字還掛著一個還活著的資料夾,不能動
+      return ok;
+    }
+    // 刪成功:DB 的 ON DELETE SET NULL 不會反映到前端這份 words,
+    // 不補這一步,裡面的字會帶著已刪資料夾的 uuid —— 被「未分類」篩選排除、
+    // chip 少算,但詳情頁與 picker 都說它們未分類(和刪除確認的文案對不上)
+    clearFolder(folderId);
+    if (folderFilter === folderId) {
       setFolderFilter(ALL_FOLDERS);
     }
     return ok;

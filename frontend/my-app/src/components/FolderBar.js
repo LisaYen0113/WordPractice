@@ -42,7 +42,8 @@ export default function FolderBar({
   const trimmed = draft.trim();
 
   const submit = async () => {
-    if (!trimmed) return;
+    // pending 也要擋:Enter 直接呼叫這裡,繞過建立鈕的 disabled
+    if (!trimmed || pending) return;
     const ok = await onCreate(trimmed);
     // 失敗時保留輸入,讓使用者改一個字就能重試
     if (ok) {

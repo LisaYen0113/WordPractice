@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 import { assignFolder, fetchDeck, markFamiliar } from "../api/words";
+import { UNCATEGORIZED, countByFolder, filterByFolder } from "../utils/folders";
 import useReviewWords from "./useReviewWords";
 
 jest.mock("../api/words", () => ({
@@ -341,6 +342,38 @@ test("setFolder 失敗後重試成功 → 錯誤被清掉", async () => {
   expect(result.current.words.find((item) => item.id === "w-a").folderId).toBe(
     "f-1"
   );
+});
+
+// 釘住:刪除資料夾後前端沒同步這批字 —— DB 的 ON DELETE SET NULL 只發生在 DB,
+// 前端 words 會永遠帶著已刪資料夾的 uuid(truthy):「未分類」篩選不含它們、
+// chip 少算,但同一個字在詳情頁與 picker 都自稱「未分類」。斷言刻意走使用者看到的
+// 那兩個症狀(filterByFolder / countByFolder),不是只檢查欄位值。
+test("clearFolder:該資料夾的字退回未分類,篩選與計數跟著對", async () => {
+  fetchDeck.mockResolvedValueOnce([
+    { ...CARD_A, folder_id: "f-a" },
+    { ...CARD_B, folder_id: "f-b" },
+  ]);
+
+  const { result } = renderHook(() => useReviewWords());
+  await waitFor(() => expect(result.current.status).toBe("ready"));
+
+  // 前提:更新前沒有任何字是未分類的,後面的斷言才有在驗東西
+  const before = result.current.words;
+  expect(filterByFolder(before, UNCATEGORIZED)).toHaveLength(0);
+
+  act(() => {
+    result.current.clearFolder("f-a");
+  });
+
+  expect(
+    filterByFolder(result.current.words, UNCATEGORIZED).map((word) => word.id)
+  ).toEqual(["w-a"]);
+  expect(countByFolder(result.current.words)[UNCATEGORIZED]).toBe(1);
+  // 別的資料夾的字一個都不能動
+  expect(result.current.words.find((word) => word.id === "w-b").folderId).toBe("f-b");
+  // 不可變:回傳的是新陣列,原本那份不被改寫
+  expect(result.current.words).not.toBe(before);
+  expect(before.find((word) => word.id === "w-a").folderId).toBe("f-a");
 });
 
 // 釘住:200 但 body 不是 JSON 時 fetchDeck() 回 null → cards.map 丟 TypeError。

@@ -139,6 +139,18 @@ export default function useReviewWords() {
     }
   }, []);
 
+  // 刪掉資料夾後,把還掛著它的字退回未分類。
+  // DB 的 ON DELETE SET NULL 只發生在 DB,前端這份 words 不會自己知道;
+  // 沒有這一步,那些字會帶著已刪資料夾的 uuid(truthy),被「未分類」篩選排除、
+  // chip 少算,可是詳情頁與 picker 都自稱未分類 —— 兩邊對不起來。
+  const clearFolder = useCallback((folderId) => {
+    setWords((prev) =>
+      prev.map((word) =>
+        word.folderId === folderId ? { ...word, folderId: null } : word
+      )
+    );
+  }, []);
+
   return useMemo(
     () => ({
       status,
@@ -153,6 +165,7 @@ export default function useReviewWords() {
       setFolder,
       folderPending,
       folderErrors,
+      clearFolder,
     }),
     [
       status,
@@ -167,6 +180,7 @@ export default function useReviewWords() {
       setFolder,
       folderPending,
       folderErrors,
+      clearFolder,
     ]
   );
 }

@@ -129,3 +129,34 @@ test("名稱空白時建立鈕停用", () => {
 
   expect(screen.getByRole("button", { name: "建立" })).toBeDisabled();
 });
+
+test("pending 期間建立鈕停用", () => {
+  // 釘住:pending 守衛是防止連點的唯一執行點。名稱刻意填非空,
+  // 否則 disabled 會來自 !trimmed,這個測試就測不到 pending 那半邊
+  renderBar({ pending: true });
+
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: "新增資料夾" }));
+  });
+  act(() => {
+    userEvent.type(screen.getByPlaceholderText("資料夾名稱"), "TOEIC");
+  });
+
+  expect(screen.getByRole("button", { name: "建立" })).toBeDisabled();
+});
+
+test("pending 期間按 Enter 不會送出(不能繞過建立鈕的停用守衛)", () => {
+  // 釘住:Enter 直接呼叫 submit,繞過 button 的 disabled —— 第一筆還在飛,
+  // Enter 就送出第二筆同名 POST,使用者會為自己剛建立的資料夾看到
+  // 「已經有同名資料夾」(FolderEditor 的輸入框有同一條規則,兩邊必須一致)
+  const props = renderBar({ pending: true });
+
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: "新增資料夾" }));
+  });
+  act(() => {
+    userEvent.type(screen.getByPlaceholderText("資料夾名稱"), "TOEIC{enter}");
+  });
+
+  expect(props.onCreate).not.toHaveBeenCalled();
+});

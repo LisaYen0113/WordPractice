@@ -122,3 +122,49 @@ test("取消確認會回到編輯狀態", async () => {
   expect(screen.getByPlaceholderText("資料夾名稱")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "確定刪除" })).not.toBeInTheDocument();
 });
+
+test("pending 期間儲存鈕停用", () => {
+  // 釘住:改名寫入中按鈕要鎖住,連點會送出兩筆 PATCH(名稱預填非空,
+  // 所以 disabled 只可能來自 pending 那半邊)
+  renderEditor({ pending: true });
+
+  expect(screen.getByRole("button", { name: "儲存" })).toBeDisabled();
+});
+
+test("pending 期間刪除資料夾鈕停用", () => {
+  // 釘住:刪除是不可逆動作,唯一進到二次確認的入口,寫入中必須鎖住
+  renderEditor({ pending: true });
+
+  expect(screen.getByRole("button", { name: "刪除資料夾" })).toBeDisabled();
+});
+
+test("pending 期間確定刪除鈕停用", () => {
+  // 釘住:真正送出 DELETE 的是這顆。刪除鈕本身已被 pending 擋住,
+  // 所以用 rerender 模擬「停在確認畫面時,另一筆寫入已經在飛」
+  const props = {
+    folder: { id: "f-a", name: "TOEIC" },
+    onRename: jest.fn().mockResolvedValue(true),
+    onDelete: jest.fn().mockResolvedValue(true),
+    onClose: jest.fn(),
+  };
+  const { rerender } = render(<FolderEditor {...props} pending={false} />);
+
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: "刪除資料夾" }));
+  });
+  rerender(<FolderEditor {...props} pending />);
+
+  expect(screen.getByRole("button", { name: "確定刪除" })).toBeDisabled();
+});
+
+test("pending 期間按 Enter 不會送出改名(不能繞過儲存鈕的停用守衛)", () => {
+  // 釘住:Enter 直接呼叫 submitRename,繞過 button 的 disabled —— 改名還在飛,
+  // Enter 就送出第二筆(FolderBar 的建立框有同一條規則,兩邊必須一致)
+  const props = renderEditor({ pending: true });
+
+  act(() => {
+    userEvent.type(screen.getByPlaceholderText("資料夾名稱"), "{enter}");
+  });
+
+  expect(props.onRename).not.toHaveBeenCalled();
+});

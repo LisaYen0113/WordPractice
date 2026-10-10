@@ -19,7 +19,8 @@ export default function FolderEditor({
   const trimmed = name.trim();
 
   const submitRename = async () => {
-    if (!trimmed) return;
+    // pending 也要擋:Enter 直接呼叫這裡,繞過儲存鈕的 disabled
+    if (!trimmed || pending) return;
     if (await onRename(trimmed)) {
       onClose();
     }
