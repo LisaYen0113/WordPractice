@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { deleteFolder, fetchFolders } from "./api/folders";
 import { fillWord } from "./api/words";
 import useReviewWords from "./hooks/useReviewWords";
 import { DEMO_STORAGE_KEY, readGuestSession, writeGuestSession } from "./utils/demoMode";
@@ -15,6 +16,13 @@ jest.mock("./api/words", () => ({
   fetchDeck: jest.fn(),
   fillWord: jest.fn(),
   markFamiliar: jest.fn(),
+}));
+
+jest.mock("./api/folders", () => ({
+  fetchFolders: jest.fn(),
+  createFolder: jest.fn(),
+  renameFolder: jest.fn(),
+  deleteFolder: jest.fn(),
 }));
 
 const mockSignOut = jest.fn();
@@ -55,6 +63,9 @@ const hookState = {
   setFamiliarity: jest.fn(),
   familiarPending: {},
   familiarErrors: {},
+  setFolder: jest.fn(),
+  folderPending: {},
+  folderErrors: {},
 };
 
 // jest(react-scripts)不載入 .env.local → 這裡自己控制 process.env,測完還原
@@ -85,6 +96,13 @@ beforeEach(() => {
     phrases: [],
     toeic_examples: [],
   });
+  // resetMocks:true → 不在這裡重設的話 fetchFolders 回 undefined,
+  // useFolders 會直接進 error 狀態,每個測試都會多一顆「重試」鈕
+  fetchFolders.mockResolvedValue([
+    { id: "f-a", name: "TOEIC" },
+    { id: "f-b", name: "常錯" },
+  ]);
+  deleteFolder.mockResolvedValue(null);
 });
 
 test("ready:顯示未學習分頁的字、email;已熟悉的字在另一分頁", () => {
@@ -276,4 +294,134 @@ test("一般帳號按「結束展示」→ 只關展示模式、不登出", asyn
   expect(mockSignOut).not.toHaveBeenCalled();
   expect(window.sessionStorage.getItem(DEMO_STORAGE_KEY)).toBeNull();
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
+// ---------- 資料夾篩選(整條線:FolderBar → filterByFolder → 清單/測驗) ----------
+// 釘住:選了資料夾要真的照 folderId 過濾,只把選擇存進 state 而沒篩,清單會原封不動全顯示
+test("選了資料夾後,清單只剩那個資料夾的字", async () => {
+  useReviewWords.mockReturnValue({
+    ...hookState,
+    words: [
+      { ...WORD_NEW, id: "w-a", word: "apple", folderId: "f-a" },
+      { ...WORD_NEW, id: "w-b", word: "banana", folderId: null },
+    ],
+  });
+
+  render(<WordApp />);
+  await screen.findByRole("button", { name: /TOEIC/ }); // 等資料夾載入
+  expect(screen.getByText("banana")).toBeInTheDocument();
+
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: /TOEIC/ }));
+  });
+
+  expect(screen.getByText("apple")).toBeInTheDocument();
+  expect(screen.queryByText("banana")).not.toBeInTheDocument();
+});
+
+// 釘住:空資料夾要說「這個資料夾還沒有單字」,寫死預設文案會讓使用者以為整個字庫都空了
+test("空資料夾顯示專屬訊息,不是「目前沒有單字」", async () => {
+  useReviewWords.mockReturnValue({
+    ...hookState,
+    words: [{ ...WORD_NEW, id: "w-b", word: "banana", folderId: null }],
+  });
+
+  render(<WordApp />);
+  await screen.findByRole("button", { name: /TOEIC/ });
+
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: /TOEIC/ }));
+  });
+
+  expect(screen.getByText("這個資料夾還沒有單字")).toBeInTheDocument();
+});
+
+// 釘住:測驗計數要算篩選後的字,漏改會畫著 2 顆字卻顯示「開始測驗 (3)」,考出畫面上沒有的字
+test("測驗範圍跟著資料夾:計數只算該資料夾已開啟測驗的字", async () => {
+  useReviewWords.mockReturnValue({
+    ...hookState,
+    words: [
+      { ...WORD_NEW, id: "w-a", word: "apple", folderId: "f-a", quizEnabled: true },
+      { ...WORD_NEW, id: "w-b", word: "banana", folderId: "f-a", quizEnabled: true },
+      { ...WORD_NEW, id: "w-c", word: "cherry", folderId: null, quizEnabled: true },
+    ],
+  });
+
+  render(<WordApp />);
+  await screen.findByRole("button", { name: /TOEIC/ });
+
+  expect(screen.getByRole("button", { name: /開始測驗 \(3\)/ })).toBeInTheDocument();
+
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: /TOEIC/ }));
+  });
+  expect(screen.getByRole("button", { name: /開始測驗 \(2\)/ })).toBeInTheDocument();
+
+  // 未分類也要跟著:剩 1 顆
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: /未分類/ }));
+  });
+  expect(screen.getByRole("button", { name: /開始測驗 \(1\)/ })).toBeInTheDocument();
+});
+
+// 釘住:刪掉的正是目前選中的資料夾時要退回「全部」,否則畫面卡在已刪除的 id 上、字全部消失
+test("刪掉正在瀏覽的資料夾 → 篩選退回「全部」", async () => {
+  useReviewWords.mockReturnValue({
+    ...hookState,
+    words: [
+      { ...WORD_NEW, id: "w-a", word: "apple", folderId: "f-a" },
+      { ...WORD_NEW, id: "w-b", word: "banana", folderId: null },
+    ],
+  });
+
+  render(<WordApp />);
+  await screen.findByRole("button", { name: /TOEIC/ });
+
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: /TOEIC/ }));
+  });
+  expect(screen.queryByText("banana")).not.toBeInTheDocument();
+
+  // 從選中 chip 旁邊的 ⋯ 開編輯 → 刪除 → 確定
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: "編輯 TOEIC" }));
+  });
+  act(() => {
+    userEvent.click(screen.getByRole("button", { name: "刪除資料夾" }));
+  });
+  await act(async () => {
+    userEvent.click(screen.getByRole("button", { name: "確定刪除" }));
+  });
+
+  // 退回全部 → 兩顆字都回來了,畫面不會停在一個已刪除的資料夾
+  expect(screen.getByText("banana")).toBeInTheDocument();
+  expect(screen.getByText("apple")).toBeInTheDocument();
+});
+
+// 釘住:詳情頁的 chip 若把參數順序寫反(或接到別顆字的 id),會把字指派到錯的資料夾
+test("詳情頁指派資料夾 → 呼叫 setFolder(wordId, folderId)", async () => {
+  useReviewWords.mockReturnValue({
+    ...hookState,
+    words: [{ ...WORD_NEW, id: "w-a", word: "apple", folderId: null }],
+  });
+
+  render(<WordApp />);
+  await screen.findByRole("button", { name: /TOEIC/ });
+
+  act(() => {
+    userEvent.click(screen.getByText("apple"));
+  });
+  act(() => {
+    // 詳情頁的 chip。清單那排 FolderBar 也有一顆「未分類」,
+    // getByRole 會抓到兩顆而拋錯 → 取最後一顆(WordDetail 排在 FolderBar 之後)
+    const chips = screen.getAllByRole("button", { name: /未分類/ });
+    userEvent.click(chips[chips.length - 1]);
+  });
+  act(() => {
+    // picker 裡的 TOEIC 選項(清單上還有一顆同名 chip,取 role=button 的最後一顆)
+    const options = screen.getAllByRole("button", { name: /TOEIC/ });
+    userEvent.click(options[options.length - 1]);
+  });
+
+  expect(useReviewWords.mock.results[0].value.setFolder).toHaveBeenCalledWith("w-a", "f-a");
 });

@@ -5,6 +5,8 @@ import { fillWord } from "./api/words";
 import { useAuth } from "./auth/AuthContext";
 import AddWord from "./components/AddWord";
 import DemoBanner from "./components/DemoBanner";
+import FolderBar from "./components/FolderBar";
+import FolderEditor from "./components/FolderEditor";
 import Header from "./components/Header";
 import Heatmap from "./components/Heatmap";
 import PairQuiz from "./components/PairQuiz";
@@ -14,8 +16,10 @@ import Tabs from "./components/Tabs";
 import TextQuiz from "./components/TextQuiz";
 import WordDetail from "./components/WordDetail";
 import WordRow from "./components/WordRow";
+import useFolders from "./hooks/useFolders";
 import useReviewWords from "./hooks/useReviewWords";
 import { isGuestAccount, readDemoMode, readGuestSession, writeDemoMode, writeGuestSession } from "./utils/demoMode";
+import { ALL_FOLDERS, countByFolder, filterByFolder } from "./utils/folders";
 
 // 簡單的 SVG 圖標
 const Icons = {
@@ -44,12 +48,29 @@ export default function WordApp() {
     setFamiliarity,
     familiarPending,
     familiarErrors,
+    setFolder,
+    folderPending,
+    folderErrors,
   } = useReviewWords();
+
+  const {
+    status: foldersStatus,
+    folders,
+    error: foldersError,
+    reload: reloadFolders,
+    pending: folderActionPending,
+    actionError: folderActionError,
+    addFolder,
+    renameFolderById,
+    removeFolder,
+  } = useFolders();
 
   const [tab, setTab] = useState("new");
   const [selectedId, setSelectedId] = useState(null);
   const [showQuizLauncher, setShowQuizLauncher] = useState(false);
   const [quizMode, setQuizMode] = useState(null);
+  const [folderFilter, setFolderFilter] = useState(ALL_FOLDERS);
+  const [editingFolderId, setEditingFolderId] = useState(null);
   // 訪客 session = demo 帳號 + 訪客入口留下的標記(標記載 localStorage,跨分頁可靠)。
   // demo 帳號直接登入(沒標記,例如業主管理字庫)→ 不強制,可正常使用
   const guestSession = isGuestAccount(user?.email) && readGuestSession();
@@ -71,16 +92,30 @@ export default function WordApp() {
     setDemoMode(on);
   };
 
+  // 資料夾是第三個篩選維度,與 tab 為 AND。
+  // 這裡仍是唯一的過濾點 → goPrevNext 的「上一個/下一個」自動跟著資料夾走
+  const folderWords = useMemo(
+    () => filterByFolder(words, folderFilter),
+    [words, folderFilter]
+  );
   // isFamiliar 由 mapper 從伺服器 familiarCount 推導(>0)
   const displayedWords = useMemo(
-    () => words.filter((w) => (tab === "new" ? !w.isFamiliar : w.isFamiliar)),
-    [words, tab]
+    () => folderWords.filter((w) => (tab === "new" ? !w.isFamiliar : w.isFamiliar)),
+    [folderWords, tab]
+  );
+  const counts = useMemo(() => countByFolder(words), [words]);
+  // 測驗範圍跟著資料夾,刻意不跟 tab(維持原本「永遠考全部已開啟的字」的體驗)
+  const quizWordCount = useMemo(
+    () => folderWords.filter((w) => w.quizEnabled).length,
+    [folderWords]
   );
 
   // 詳情存 id、每次 render 從最新的 words 派生:
   // 標記熟悉後同一筆資料更新,詳情頁的熟悉度會立即同步,不會拿到舊物件
   const selected = words.find((w) => w.id === selectedId) ?? null;
-  const quizWordCount = words.filter((w) => w.quizEnabled).length;
+  // 編輯中的資料夾同樣存 id、從最新清單派生:改名後 modal 顯示新名字,
+  // 被刪掉時自動變 null → modal 自己關掉
+  const editingFolder = folders.find((folder) => folder.id === editingFolderId) ?? null;
 
   const handleAdd = async (text) => {
     // 展示模式不該新增單字(輸入框已停用;這裡再擋一層,確保不會有任何 AI 呼叫)
@@ -92,6 +127,16 @@ export default function WordApp() {
       throw new Error("生成成功但沒有存進清單,請稍後再試一次");
     }
     upsertWord(detailToWord(raw));
+  };
+
+  // 刪掉的正好是正在瀏覽的資料夾 → 退回「全部」,
+  // 否則畫面會卡在一個不存在的 id 上變空白
+  const handleDeleteFolder = async (folderId) => {
+    const ok = await removeFolder(folderId);
+    if (ok && folderFilter === folderId) {
+      setFolderFilter(ALL_FOLDERS);
+    }
+    return ok;
   };
 
   const goPrevNext = (delta) => {
@@ -127,6 +172,24 @@ export default function WordApp() {
         <div className="flex flex-col gap-4 w-full">
           <AddWord onAdd={handleAdd} demoMode={demoMode} />
           <Tabs tab={tab} setTab={setTab} />
+          {foldersStatus === "error" && (
+            <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+              {foldersError}
+              <button onClick={reloadFolders} className="ml-2 underline">
+                重試
+              </button>
+            </p>
+          )}
+          <FolderBar
+            folders={folders}
+            selection={folderFilter}
+            onSelect={setFolderFilter}
+            onEdit={setEditingFolderId}
+            counts={counts}
+            onCreate={addFolder}
+            pending={folderActionPending}
+            actionError={folderActionError}
+          />
         </div>
 
         {/* 單字列表區域 */}
@@ -145,7 +208,9 @@ export default function WordApp() {
               />
             ))
           ) : (
-            <EmptyState />
+            <EmptyState
+              message={folderFilter === ALL_FOLDERS ? "目前沒有單字" : "這個資料夾還沒有單字"}
+            />
           )}
         </div>
       </div>
@@ -188,6 +253,11 @@ export default function WordApp() {
           isFamiliar={selected.isFamiliar}
           isFamiliarPending={Boolean(familiarPending[selected.id])}
           familiarError={familiarErrors[selected.id] ?? null}
+          folderName={folders.find((folder) => folder.id === selected.folderId)?.name ?? null}
+          folders={folders}
+          onAssignFolder={setFolder}
+          folderPending={Boolean(folderPending[selected.id])}
+          folderError={folderErrors[selected.id] ?? null}
           onClose={() => setSelectedId(null)}
           toggleFamiliar={() => setFamiliarity(selected.id, !selected.isFamiliar)}
           onPrev={() => goPrevNext(-1)}
@@ -195,11 +265,23 @@ export default function WordApp() {
         />
       )}
 
+      {/* 資料夾編輯 Modal */}
+      {editingFolder && (
+        <FolderEditor
+          folder={editingFolder}
+          onRename={(name) => renameFolderById(editingFolder.id, name)}
+          onDelete={() => handleDeleteFolder(editingFolder.id)}
+          onClose={() => setEditingFolderId(null)}
+          pending={folderActionPending}
+          actionError={folderActionError}
+        />
+      )}
+
       {/* 測驗模式 (全螢幕覆蓋)— 白名單:未知值不該蓋出無法關閉的覆蓋層 */}
       {["pair", "text"].includes(quizMode) && (
         <div className="fixed inset-0 z-[60] bg-zinc-50 dark:bg-[#0d1410]">
-          {quizMode === "pair" && <PairQuiz words={words} onClose={() => setQuizMode(null)} />}
-          {quizMode === "text" && <TextQuiz words={words} onClose={() => setQuizMode(null)} demoMode={demoMode} />}
+          {quizMode === "pair" && <PairQuiz words={folderWords} onClose={() => setQuizMode(null)} />}
+          {quizMode === "text" && <TextQuiz words={folderWords} onClose={() => setQuizMode(null)} demoMode={demoMode} />}
         </div>
       )}
     </div>

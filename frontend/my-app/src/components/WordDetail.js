@@ -1,4 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
+
+import FolderPicker from "./FolderPicker";
 
 // 簡單的 SVG 圖標組件
 const Icons = {
@@ -26,7 +28,23 @@ const Icons = {
 const asList = (value) =>
   Array.isArray(value) ? value : value == null ? [] : [String(value)];
 
-export default function WordDetail({ word, onClose, onPrev, onNext, toggleFamiliar, isFamiliar, isFamiliarPending = false, familiarError = null }) {
+export default function WordDetail({
+  word,
+  onClose,
+  onPrev,
+  onNext,
+  toggleFamiliar,
+  isFamiliar,
+  isFamiliarPending = false,
+  familiarError = null,
+  folderName = null,
+  folders = [],
+  onAssignFolder = null,
+  folderPending = false,
+  folderError = null,
+}) {
+  const [picking, setPicking] = useState(false);
+
   if (!word) return null;
 
   return (
@@ -67,6 +85,16 @@ export default function WordDetail({ word, onClose, onPrev, onNext, toggleFamili
               {word.pronunciation && (
                 <button className="p-2 rounded-full text-zinc-400 hover:text-emerald-600 dark:text-zinc-500 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-[#29382f] transition-colors">
                   <Icons.Volume />
+                </button>
+              )}
+              {onAssignFolder && (
+                <button
+                  onClick={() => setPicking(true)}
+                  disabled={folderPending}
+                  title="移到其他資料夾"
+                  className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-zinc-200 dark:border-[#29382f] text-sm font-bold text-zinc-600 dark:text-[#9eb7a8] hover:bg-zinc-100 dark:hover:bg-[#29382f] disabled:opacity-50 transition-colors"
+                >
+                  <span className="max-w-[8rem] truncate">{folderName ?? "未分類"}</span>
                 </button>
               )}
             </div>
@@ -140,6 +168,13 @@ export default function WordDetail({ word, onClose, onPrev, onNext, toggleFamili
           </p>
         )}
 
+        {/* 指派資料夾失敗的訊息(per-id,來自 hook) */}
+        {folderError && (
+          <p role="alert" className="shrink-0 border-t border-red-100 dark:border-red-900/40 bg-red-50 dark:bg-red-900/20 px-6 py-2 text-sm font-medium text-red-600 dark:text-red-400">
+            {folderError}
+          </p>
+        )}
+
         {/* Footer */}
         <footer className="grid grid-cols-3 gap-4 p-4 border-t border-zinc-100 dark:border-[#29382f] bg-white dark:bg-[#122017] shrink-0">
           <button
@@ -171,6 +206,19 @@ export default function WordDetail({ word, onClose, onPrev, onNext, toggleFamili
             <Icons.Next />
           </button>
         </footer>
+
+        {picking && (
+          <FolderPicker
+            folders={folders}
+            currentFolderId={word.folderId ?? null}
+            onPick={(folderId) => {
+              onAssignFolder(word.id, folderId);
+              setPicking(false);
+            }}
+            onClose={() => setPicking(false)}
+            pending={folderPending}
+          />
+        )}
       </div>
     </div>
   );
