@@ -210,3 +210,26 @@ test("per-request timeout override keeps slow AI calls alive longer", async () =
   await assertion;
   expect(settled).toBe(true);
 });
+
+// 釘住:409 落進「其餘 4xx」分支 → 被當成 SERVER 且訊息被換成通用中文,
+// 使用者就看不到後端給的中文「已經有同名資料夾」。
+test("409 保留後端的中文 detail（資料夾名稱重複）", async () => {
+  global.fetch.mockResolvedValue(
+    jsonResponse(409, { detail: "已經有同名資料夾" })
+  );
+
+  await expect(apiRequest("/folders", { method: "POST" })).rejects.toMatchObject({
+    code: ErrorCodes.CONFLICT,
+    status: 409,
+    message: "已經有同名資料夾",
+  });
+});
+
+// 釘住:沒帶 detail 時訊息會是 undefined,或錯誤碼不是 CONFLICT(呼叫端無法據此做「換個名字」提示)。
+test("409 沒有 detail 時給通用中文，不外洩英文", async () => {
+  global.fetch.mockResolvedValue(jsonResponse(409, {}));
+
+  const error = await apiRequest("/folders", { method: "POST" }).catch((e) => e);
+  expect(error.code).toBe(ErrorCodes.CONFLICT);
+  expect(error.message).toBe("已經有同名的資料夾,請換一個名稱");
+});

@@ -3,6 +3,7 @@
 
 const MAX_WORD_LENGTH = 64;
 const MAX_ANSWER_LENGTH = 200;
+const MAX_FOLDER_NAME_LENGTH = 50;
 
 // 首字必須是字母,其後可字母 / 數字 / 空白 / ' / - / ’(對齊後端的 EnglishWord pattern)
 const ENGLISH_WORD_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿĀ-ɏ][A-Za-zÀ-ÖØ-öø-ÿĀ-ɏ0-9 '’-]*$/;
@@ -54,6 +55,24 @@ export function validateChineseAnswer(raw) {
   }
   if (UNSAFE_CHAR_PATTERN.test(value)) {
     return { ok: false, error: "答案含有不允許的字元" };
+  }
+  return { ok: true, value };
+}
+
+// 資料夾名稱:對齊後端 app/schemas/folders.py 的 FolderName(strip 後 1~50 字)
+export function validateFolderName(raw) {
+  if (typeof raw !== "string") {
+    return { ok: false, error: "請先輸入資料夾名稱" };
+  }
+  const value = raw.trim();
+  if (!value) {
+    return { ok: false, error: "請先輸入資料夾名稱" };
+  }
+  if (value.length > MAX_FOLDER_NAME_LENGTH) {
+    return { ok: false, error: `名稱最多 ${MAX_FOLDER_NAME_LENGTH} 個字元` };
+  }
+  if (UNSAFE_CHAR_PATTERN.test(value)) {
+    return { ok: false, error: "名稱含有不允許的字元" };
   }
   return { ok: true, value };
 }

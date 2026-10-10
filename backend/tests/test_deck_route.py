@@ -86,6 +86,27 @@ def test_deck_returns_cards_for_all_words_including_not_due(monkeypatch):
     }
 
 
+def test_deck_includes_folder_id(monkeypatch):
+    """資料夾篩選靠這個欄位;未分類必須是 null,不是缺欄位"""
+    filed_word = uuid.uuid4()
+    loose_word = uuid.uuid4()
+    folder_id = uuid.uuid4()
+    _patch_deck(
+        monkeypatch,
+        [
+            {"word_id": str(filed_word), "familiarity_score": 1, "folder_id": str(folder_id)},
+            {"word_id": str(loose_word), "familiarity_score": 0, "folder_id": None},
+        ],
+        [_word_row(filed_word, "attire"), _word_row(loose_word, "benevolent")],
+    )
+
+    response = client.get("/words/deck", headers=auth_headers())
+
+    assert response.status_code == 200
+    by_word = {c["word"]: c["folder_id"] for c in response.json()}
+    assert by_word == {"attire": str(folder_id), "benevolent": None}
+
+
 def test_deck_empty_list_skips_second_query(monkeypatch):
     capture = _patch_deck(monkeypatch, [])
 
@@ -124,6 +145,7 @@ def test_deck_card_shape_matches_review(monkeypatch):
             "synonyms": ["tough"],
             "toeic_examples": ["Be resilient."],
             "familiarity_score": 2,
+            "folder_id": None,
         }
     ]
     assert capture["ids"] == [str(word_id)]
@@ -168,6 +190,7 @@ def test_review_still_returns_cards_for_due_words(monkeypatch):
             "synonyms": None,
             "toeic_examples": None,
             "familiarity_score": 3,
+            "folder_id": None,
         }
     ]
 

@@ -106,3 +106,72 @@ class TestMarkFamiliarRequest:
     def test_rejects_garbage_familiar(self):
         with pytest.raises(ValidationError):
             MarkFamiliarRequest(word_id=VALID_UUID, familiar="maybe")
+
+
+class TestFolderName:
+    """資料夾名稱:strip → 1~50 字 → 擋控制字元/零寬/bidi"""
+
+    def test_strips_surrounding_whitespace(self):
+        # 「 TOEIC 」與「TOEIC」必須是同一個名字,否則會建出兩個看起來一樣的資料夾
+        from app.schemas.folders import FolderCreateRequest
+
+        assert FolderCreateRequest(name="  TOEIC  ").name == "TOEIC"
+
+    @pytest.mark.parametrize("raw", ["", "   ", "\t\n "])
+    def test_rejects_blank(self, raw):
+        from app.schemas.folders import FolderCreateRequest
+
+        with pytest.raises(ValidationError):
+            FolderCreateRequest(name=raw)
+
+    def test_rejects_over_50_chars(self):
+        from app.schemas.folders import FolderCreateRequest
+
+        with pytest.raises(ValidationError):
+            FolderCreateRequest(name="A" * 51)
+
+    def test_accepts_exactly_50_chars(self):
+        from app.schemas.folders import FolderCreateRequest
+
+        assert FolderCreateRequest(name="A" * 50).name == "A" * 50
+
+    def test_rejects_control_and_zero_width_chars(self):
+        # 名稱會原樣回傳、顯示、進 log → 不讓隱形字元進 DB
+        from app.schemas.folders import FolderCreateRequest
+
+        for raw in ["TOE\u200bIC", "TO\x00EIC", "TOEIC\u202e", "TOEIC\ufeff"]:
+            with pytest.raises(ValidationError):
+                FolderCreateRequest(name=raw)
+
+    def test_allows_chinese_and_symbols(self):
+        from app.schemas.folders import FolderCreateRequest
+
+        assert FolderCreateRequest(name="課本 Unit 3（常錯）").name == "課本 Unit 3（常錯）"
+
+
+class TestSetFolderRequest:
+    def test_accepts_null_folder_id(self):
+        # null 是合法的「移回未分類」,與「沒帶欄位」不同
+        from app.schemas.folders import SetFolderRequest
+
+        assert SetFolderRequest(folder_id=None).folder_id is None
+
+    def test_accepts_uuid(self):
+        import uuid as uuid_module
+
+        from app.schemas.folders import SetFolderRequest
+
+        value = uuid_module.uuid4()
+        assert SetFolderRequest(folder_id=str(value)).folder_id == value
+
+    def test_rejects_missing_field(self):
+        from app.schemas.folders import SetFolderRequest
+
+        with pytest.raises(ValidationError):
+            SetFolderRequest()
+
+    def test_rejects_non_uuid(self):
+        from app.schemas.folders import SetFolderRequest
+
+        with pytest.raises(ValidationError):
+            SetFolderRequest(folder_id="not-a-uuid")

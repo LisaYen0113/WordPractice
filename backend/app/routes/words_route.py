@@ -14,6 +14,11 @@ from app.schemas.words import (
     NewWordRequest,
     WordCard,
 )
+from app.schemas.folders import SetFolderRequest, SetFolderResponse
+# 只需要 assign_folder。folders_service 裡**沒有** get_folder —— 那個名字是 DAO 的
+# (app/daos/folders_dao.py);service 層的列表函式叫 get_folders(複數)。
+# 擁有者驗證在 assign_folder 內部自己呼叫 DAO 的 get_folder,route 不必碰。
+from app.services.folders_service import assign_folder
 from app.services.familiarity_service import set_word_familiarity
 from app.services.words_service import fill_word_details
 
@@ -26,15 +31,19 @@ REVIEW_REQUESTS_PER_MINUTE = 60
 DECK_REQUESTS_PER_MINUTE = 60
 # 標記熟悉是單列寫入,同樣給寬鬆的每使用者上限
 MARK_FAMILIAR_REQUESTS_PER_MINUTE = 60
+# 指派是單列寫入,與 mark_familiar 同級
+SET_FOLDER_REQUESTS_PER_MINUTE = 60
 
 
 def _build_cards(user_words: list) -> list[WordCard]:
-    """user_words 列(word_id/familiarity_score)→ 單字卡;兩個清單端點共用"""
+    """user_words 列(word_id/familiarity_score/folder_id)→ 單字卡;兩個清單端點共用"""
     if not user_words:
         return []
 
     ids = [str(u["word_id"]) for u in user_words]
-    id_to_fam = {str(u["word_id"]): u["familiarity_score"] for u in user_words}
+    # 以 word_id 索引整列:熟悉度與資料夾都從同一列取,不用維護兩份 map。
+    # folder_id 用 .get → 舊測試的 fixture 沒有這個鍵也不會 KeyError(未分類 = None)
+    by_word_id = {str(u["word_id"]): u for u in user_words}
 
     words = get_words_by_ids(ids)
 
@@ -48,7 +57,8 @@ def _build_cards(user_words: list) -> list[WordCard]:
             etymology=w.get("etymology"),
             synonyms=w.get("synonyms"),
             toeic_examples=w.get("toeic_examples"),
-            familiarity_score=id_to_fam[str(w["id"])]
+            familiarity_score=by_word_id[str(w["id"])]["familiarity_score"],
+            folder_id=by_word_id[str(w["id"])].get("folder_id"),
         )
         for w in words
     ]
@@ -105,3 +115,18 @@ def api_mark_familiar(
     except Exception as e:
         logger.error(f"API /mark_familiar error for word {request.word_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to update familiarity")
+
+
+@router.put("/{word_id}/folder", response_model=SetFolderResponse)
+def api_set_word_folder(
+    word_id: uuid.UUID,
+    request: SetFolderRequest,
+    user_id: uuid.UUID = Depends(
+        rate_limited("set_folder", SET_FOLDER_REQUESTS_PER_MINUTE)
+    ),
+):
+    """把字指派到資料夾(folder_id=null → 移回未分類)。
+
+    word_id 是 words.id(字典字庫),與 /mark_familiar 一致。
+    """
+    return assign_folder(user_id, word_id, request.folder_id)

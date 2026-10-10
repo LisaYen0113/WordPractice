@@ -14,6 +14,7 @@ export const ErrorCodes = {
   TIMEOUT: "TIMEOUT",
   UNAUTHORIZED: "UNAUTHORIZED",
   NOT_FOUND: "NOT_FOUND",
+  CONFLICT: "CONFLICT",
   VALIDATION: "VALIDATION",
   RATE_LIMIT: "RATE_LIMIT",
   UPSTREAM: "UPSTREAM",
@@ -87,6 +88,15 @@ export async function apiRequest(
   }
   if (status === 404) {
     throw new ApiError(ErrorCodes.NOT_FOUND, detail || "找不到資料", { status });
+  }
+  if (status === 409) {
+    // 409 目前只有「資料夾名稱重複」→ 後端 detail 已是中文,直接用;
+    // 沒帶 detail 時給通用句,絕不外洩英文
+    throw new ApiError(
+      ErrorCodes.CONFLICT,
+      detail || "已經有同名的資料夾,請換一個名稱",
+      { status }
+    );
   }
   if (status === 422) {
     // 後端 422 的 msg 是英文,一律換中文

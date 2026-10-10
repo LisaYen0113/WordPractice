@@ -26,12 +26,22 @@ PROTECTED_ENDPOINTS = [
     ("POST", "/words/fill", {"word": "apple"}),
     ("POST", "/words/mark_familiar", {"word_id": str(uuid.uuid4()), "familiar": True}),
     ("POST", "/tests/submit_definition", {"word_id": str(uuid.uuid4()), "user_input_zh": "蘋果"}),
+    ("POST", "/folders", {"name": "TOEIC"}),
+    ("PATCH", f"/folders/{uuid.uuid4()}", {"name": "TOEIC"}),
+    ("DELETE", f"/folders/{uuid.uuid4()}", None),
+    ("PUT", f"/words/{uuid.uuid4()}/folder", {"folder_id": None}),
 ]
 
 
 def _call(method, path, payload, headers=None):
     if method == "GET":
         return client.get(path, headers=headers or {})
+    if method == "PATCH":
+        return client.patch(path, json=payload, headers=headers or {})
+    if method == "PUT":
+        return client.put(path, json=payload, headers=headers or {})
+    if method == "DELETE":
+        return client.delete(path, headers=headers or {})
     return client.post(path, json=payload, headers=headers or {})
 
 

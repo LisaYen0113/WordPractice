@@ -20,3 +20,13 @@ export function markFamiliar(wordId, familiar) {
     body: { word_id: wordId, familiar },
   });
 }
+
+export function assignFolder(wordId, folderId) {
+  // folderId 允許 null(移回未分類)—— 一定要帶這個鍵,後端把「缺欄位」視為 422。
+  // `?? null` 不是裝飾:JSON.stringify({folder_id: undefined}) 會把整個鍵丟掉,
+  // 呼叫端不小心傳 undefined 時就會變成 422 而不是「移回未分類」。
+  return apiRequest(`/words/${wordId}/folder`, {
+    method: "PUT",
+    body: { folder_id: folderId ?? null },
+  });
+}

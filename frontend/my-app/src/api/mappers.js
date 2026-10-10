@@ -15,6 +15,7 @@ export function cardToWord(card) {
     // 分頁過濾與詳情按鈕都靠這個欄位;必須在這裡就從伺服器分數推導,
     // 否則 deck 載入的字一律被當成未熟悉(列上有綠勾、卻在「未學習」分頁)
     isFamiliar: score > 0,
+    folderId: card.folder_id ?? null, // 未分類是 null
     quizEnabled: false, // 測驗開關是 session-local,重整後重設
   };
 }
@@ -35,6 +36,7 @@ export function detailToWord(detail) {
     toeic: detail.toeic_examples ?? [],
     familiarCount: 0,
     isFamiliar: false, // 剛生成的字一定未熟悉
+    folderId: null, // 剛加入的字一律未分類
     quizEnabled: true, // 剛加入的字直接開放測驗(沿用原本的加入體驗)
   };
 }

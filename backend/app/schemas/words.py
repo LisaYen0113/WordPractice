@@ -15,6 +15,7 @@ class WordCard(BaseModel):
     synonyms: Optional[List[str]] = None
     toeic_examples: Optional[List[str]] = None
     familiarity_score: int
+    folder_id: Optional[uuid.UUID] = None
 
 # 新增: 用於前端提交單字填充
 # 限制:英文單字/片語(字母含重音、數字、空白、連字號、撇號/彎引號),長度 1-64
