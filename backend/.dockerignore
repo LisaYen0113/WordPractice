@@ -1,0 +1,12 @@
+venv/
+.env
+.env.*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+logs/
+tests/
+supabase/
+requirements-dev.txt
+pytest.ini
