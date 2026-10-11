@@ -33,11 +33,22 @@ JSONB_FIELDS = ["synonyms", "antonyms", "inflections", "phrases", "toeic_example
 REQUIRED_FIELDS = ("word", "pos", "definition", "kk_pronunciation")
 
 
-def log_failed_word(word_data: dict):
-    """將單筆失敗單字寫入 FAILED_LOG_FILE"""
-    FAILED_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(FAILED_LOG_FILE, "a", encoding="utf-8", errors="backslashreplace") as f:
-        f.write(json.dumps(word_data, ensure_ascii=False) + "\n")
+def log_failed_word(word_data: dict) -> None:
+    """將單筆失敗單字寫入 FAILED_LOG_FILE。
+
+    純副作用,永不拋錯:呼叫端在 DATA_DIR 不可寫的降級狀態下仍必須走完它的降級
+    return。這裡一拋錯,/fill 就回 500,而且 Gemini 已經生成、已經付費的內容會
+    整個丟掉 —— 比「少一筆佇列」嚴重得多,而那正是 D7 要避免的沉默的錯。
+    """
+    try:
+        FAILED_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(FAILED_LOG_FILE, "a", encoding="utf-8", errors="backslashreplace") as f:
+            f.write(json.dumps(word_data, ensure_ascii=False) + "\n")
+    except OSError as e:
+        logger.error(
+            f"失敗佇列寫不進去({e}),這筆沒有留底:{word_data.get('word', 'unknown')}"
+        )
+        return
     logger.warning(f"Logged failed word: {word_data.get('word', 'unknown')}")
 
 

@@ -124,3 +124,28 @@ def test_drain_parses_raw_response_with_json_fence(tmp_path, monkeypatch):
     assert inserted[0]["word"] == "proficiency"
     assert inserted[0]["pos"] == "n."
     assert _remaining_entries(queue) == []
+
+
+def test_unwritable_queue_does_not_break_the_fallback_response(tmp_path, monkeypatch):
+    """DATA_DIR 不可寫(設計上允許的降級狀態)時,寫不進失敗佇列不能把請求打掛。
+
+    log_failed_word 是純副作用。它一拋錯,words_service._insert_or_reuse 的降級
+    return 就永遠到不了 → /fill 回 500,而且 Gemini 已經生成、已經付費的那份內容
+    整個丟掉,只留在 log 裡。這個狀態的代價應該只是「少一筆佇列」。
+    """
+    from app.services import words_service
+
+    blocker = tmp_path / "blocker"
+    blocker.write_text("我是檔案,不是目錄", encoding="utf-8")  # mkdir 會在這裡炸
+    monkeypatch.setattr(
+        retry_failed_words, "FAILED_LOG_FILE", blocker / "logs" / "failed_words.jsonl"
+    )
+
+    def failing_insert(word_data):
+        raise RuntimeError("Supabase 掛了")
+
+    monkeypatch.setattr(words_service, "insert_word", failing_insert)
+
+    result = words_service._insert_or_reuse({"word": "probe"}, "probe", "raw response")
+
+    assert result == {"id": None, "word": "probe"}
