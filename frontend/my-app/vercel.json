@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://wordpractice-api.vercel.app/:path*"
+      "destination": "https://word-practice-chi.vercel.app/:path*"
     }
   ],
   "headers": [
