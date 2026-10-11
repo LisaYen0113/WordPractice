@@ -10,15 +10,24 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 # 這些都是 import-time 常數,只有在乾淨的子行程裡重新 import 才驗得到
 _PROBE = """
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 
 from app.core.config import DATA_DIR
 from app.core.logger import LOG_DIR
 from app.utils.retry_failed_words import FAILED_LOG_FILE
 
+handlers = logging.getLogger("app.core.logger").handlers
+
 print(json.dumps({
     "data": str(DATA_DIR),
     "log": str(LOG_DIR),
     "queue": str(FAILED_LOG_FILE),
+    "file_handlers": sum(isinstance(h, RotatingFileHandler) for h in handlers),
+    "console_handlers": sum(
+        isinstance(h, logging.StreamHandler) and not isinstance(h, RotatingFileHandler)
+        for h in handlers
+    ),
 }))
 """
 
@@ -61,14 +70,36 @@ def test_data_dir_env_moves_log_and_queue(tmp_path):
 
 
 def test_data_dir_creates_log_dir_on_import(tmp_path):
-    _probe_ok(tmp_path)
+    probe = _probe_ok(tmp_path)
 
     assert (tmp_path / "logs").is_dir()
+    assert probe["file_handlers"] == 1
+    assert probe["console_handlers"] == 1
 
 
-def test_missing_data_dir_parent_fails_loudly(tmp_path):
-    """volume 沒掛上時要大聲失敗:靜默退回容器暫存區 = 下次部署無聲遺失 log 與待重試單字"""
+def test_unwritable_data_dir_warns_instead_of_crashing(tmp_path):
+    """DATA_DIR 不可寫時,import 要成功,但**必須出聲**。
+
+    原本這條測的是「當場失敗」,理由寫在 config.py:「不能靜默退回容器暫存區」。
+    那個理由是對的,但只在 Fly 上成立 —— 那裡失敗發生在部署階段(健康檢查不過,
+    部署被拒),而且有 SSH 可查。Vercel 上沒有 shell,同一個失敗會變成
+    「部署成功、每個請求 500、traceback 埋在 dashboard 裡」,那不算大聲。
+
+    所以原則(不能無聲)保留,機制換掉:降級到 console-only,並在 stderr
+    留下指名 LOG_DIR 路徑的 WARNING。console 是 Vercel 唯一收得到的管道,
+    正式環境的 log 因此一點都不會少。
+    """
     result = _probe(tmp_path / "not-mounted")
 
-    assert result.returncode != 0
-    assert "FileNotFoundError" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert "WARNING" in result.stderr
+    assert "not-mounted" in result.stderr
+
+
+def test_unwritable_data_dir_drops_file_handler_but_keeps_console(tmp_path):
+    """降級要降得乾淨:不能留一個每次都寫失敗的檔案 handler,
+    但 console handler 必須還在 —— 少了它就是「降級成啞巴」,比原本的當場失敗更糟"""
+    probe = _probe_ok(tmp_path / "not-mounted")
+
+    assert probe["file_handlers"] == 0
+    assert probe["console_handlers"] == 1
