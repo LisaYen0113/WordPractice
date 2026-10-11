@@ -8,9 +8,10 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 # 可寫資料目錄(log 與失敗佇列)。不設 DATA_DIR 時指回 backend/,本機行為不變;
-# 正式環境設成 Fly volume(例如 /data),重新部署才留得住 log 與待重試的單字。
-# 刻意不加 parents=True:上層目錄不存在代表 volume 沒掛上,要當場失敗,
-# 不能靜默退回容器暫存區(那樣下次部署就無聲遺失)
+# 正式環境(Vercel)必須設成 /tmp —— serverless 只有 /tmp 可寫,而且內容隨實例消失,
+# 所以在那裡的檔案 log 與失敗佇列只是痕跡,不是紀錄。
+# 刻意不加 parents=True:上層目錄不存在就是設定錯了。logger 遇到寫不了時會降級成
+# console-only 並留下指名路徑的警告,而不是默默把 log 散到別的地方
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.getenv("DATA_DIR", "").strip() or BACKEND_DIR)
 
