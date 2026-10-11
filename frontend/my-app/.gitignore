@@ -21,3 +21,6 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Vercel CLI 連結資訊(本機產物)
+/.vercel
