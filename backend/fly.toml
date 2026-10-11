@@ -1,5 +1,5 @@
 # fly launch 會產生一份,這份是取代它的正式版
-app = "CHANGEME-app-name"
+app = "wordpractice"
 primary_region = "nrt"
 
 [build]
@@ -24,5 +24,5 @@ primary_region = "nrt"
     path = "/health"
 
 [[mounts]]
-  source = "CHANGEME-volume-name"
+  source = "wordpractice_data"
   destination = "/data"
