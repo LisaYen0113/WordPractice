@@ -92,11 +92,11 @@ Add a credit card or buy credit: https://fly.io/dashboard/yu-fan-yen/billing
 瀏覽器
   │  只認得一個網域
   ▼
-https://wordpractice.vercel.app          ← Vercel 專案 1（前端）
+https://wordpractice-beta.vercel.app     ← Vercel 專案 1（前端）
   │  CRA 靜態產物
   │  vercel.json: rewrite /api/:path* → 後端專案
   ▼
-https://wordpractice-api.vercel.app      ← Vercel 專案 2（後端）
+https://word-practice-chi.vercel.app     ← Vercel 專案 2（後端）
   │  FastAPI，掛在 api/index.py
   │  rewrite /(.*) → /api/index
   ▼
@@ -114,10 +114,10 @@ Supabase Postgres (PostgREST over HTTPS)  +  Gemini API
 
 | 專案 | Root Directory | 用途 |
 |---|---|---|
-| `wordpractice` | `frontend/my-app` | 前端靜態網站 |
-| `wordpractice-api` | `backend` | 後端函式 |
+| `wordpractice` | `frontend/my-app` | 前端靜態網站（`wordpractice-beta.vercel.app`） |
+| `word-practice` | `backend` | 後端函式（`word-practice-chi.vercel.app`） |
 
-後端專案的實際 production 網址，**要等專案建立後才能確定** —— Vercel 在 `wordpractice-api` 被占用時會給 `wordpractice-api-<team>.vercel.app` 這種帶後綴的別名。因此 `frontend/my-app/vercel.json` 的 `destination` 先填 `https://wordpractice-api.vercel.app/:path*`，建立後照實際網址修正。護欄測試會擋住「忘了改」（§6）。
+兩個專案的實際 production 網址**要等專案建立後才能確定**，而這一版兩個名稱都被別人占用，Vercel 都給了帶後綴的別名：前端是 `wordpractice-beta.vercel.app`（不是 `wordpractice.vercel.app`），後端是 `word-practice-chi.vercel.app`（不是 `wordpractice-api.vercel.app`）。所以 `frontend/my-app/vercel.json` 的 `destination` 一律以 Vercel 後台複製的實際網址為準，不要憑印象打。護欄測試會擋住「忘了改」（§6），但**擋不住「填了但填錯」** —— 那會讓整個網站 404 而所有測試全綠。
 
 ## 5. 後端改動
 
@@ -259,9 +259,9 @@ push 到 GitHub 即自動部署
 
 ## 9. 驗證方式
 
-1. `curl https://wordpractice-api.vercel.app/health` → `{"status":"ok"}`。
-2. `curl -i https://wordpractice-api.vercel.app/words/deck` **不帶 token** → **401**。回 200 表示認證被繞過，停下來查。
-3. **`curl -i https://wordpractice-api.vercel.app/` 不得回 HTML 登入頁** —— 這是 D11 的檢查。若回一頁 Vercel 登入畫面，表示 Deployment Protection 沒關，前端的 rewrite 會全部撞牆。
+1. `curl https://word-practice-chi.vercel.app/health` → `{"status":"ok"}`。
+2. `curl -i https://word-practice-chi.vercel.app/words/deck` **不帶 token** → **401**。回 200 表示認證被繞過，停下來查。
+3. **`curl -i https://word-practice-chi.vercel.app/` 不得回 HTML 登入頁** —— 這是 D11 的檢查。若回一頁 Vercel 登入畫面，表示 Deployment Protection 沒關，前端的 rewrite 會全部撞牆。
 4. 從 Vercel 前端網域登入，單字清單、複習、測驗三個流程都正常。
 5. **開 DevTools → Network，確認 API 請求打的是 `/api/words/...` 而不是 `localhost:8000`。** 這是最容易漏掉、且 build 不會報錯的失敗模式（`REACT_APP_API_URL` 沒設時 `client.js` 會靜默退回 localhost）。
 6. **寫入路徑單獨確認。** 新增一個單字、送出一次測驗答案，確認回 **200**。`main.py` 的 `limit_body_size` 對「沒有數字 `Content-Length`」的 POST 一律回 411 —— 這一版沒有 rewrite 重組 body 的疑慮（Vercel 直接把 body 交給函式），但這是**推論不是查證**，所以照樣實測。
@@ -281,7 +281,7 @@ push 到 GitHub 即自動部署
 **沿用上一版、仍然成立的**
 
 - **preview 部署共用正式後端與資料庫。** rewrite 目標寫死在 `vercel.json`，所有 preview 都代理到同一個後端專案。
-- **後端網址本身是公開的。** 知道 `wordpractice-api.vercel.app` 的人可繞過前端直接打 API。JWT 認證仍然有效。要加固可在前端用 `routes` transform 帶共享密鑰標頭，後端驗證 —— 本設計**不含**這項。
+- **後端網址本身是公開的。** 知道 `word-practice-chi.vercel.app` 的人可繞過前端直接打 API。JWT 認證仍然有效。要加固可在前端用 `routes` transform 帶共享密鑰標頭，後端驗證 —— 本設計**不含**這項。
 - **Hobby 方案僅限非商業用途。** 這是個人單字 App，符合。
 - **Vercel Hobby 不能連「組織擁有的」Git repo。** `LisaYen0113/WordPractice` 是個人帳號，不受影響（已查證）。
 

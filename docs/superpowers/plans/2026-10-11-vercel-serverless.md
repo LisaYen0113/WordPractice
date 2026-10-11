@@ -711,6 +711,15 @@ Log 目錄 ... 不可寫,這次執行只有 console log
 
 若 Task 3 拿到的網址不是 `https://wordpractice-api.vercel.app`，改 `frontend/my-app/vercel.json` 的 `destination`。然後：
 
+**實際執行的結果（2026-10-11）：**兩個專案名稱都被別人占用，Vercel 給了帶後綴的別名，所以兩邊都不是暫定值：
+
+| 專案 | 名稱 | Production 網址 |
+|---|---|---|
+| 前端 | `wordpractice` | `https://wordpractice-beta.vercel.app` |
+| 後端 | `word-practice` | `https://word-practice-chi.vercel.app` |
+
+下面 Step 5~7 的指令已用實際網址。**要重新確認時一律從 Vercel 後台複製，不要從本文件抄** —— 本文件其餘段落（Task 2、Task 3）保留的暫定值 `wordpractice-api.vercel.app` 是當時的輸入，不是本專案的站。
+
 Run: `cd backend && venv/Scripts/python.exe -m pytest tests/test_deploy_config.py -q`
 
 Expected: **14 passed**。
@@ -758,9 +767,9 @@ Vercel 後台 → Add New → Project → 匯入 `LisaYen0113/WordPractice`。
 `REACT_APP_API_URL` 沒設時 `client.js` 會**靜默**退回 `http://localhost:8000`，build 不會報錯。直接翻 production bundle 找證據：
 
 ```bash
-BUNDLE=$(curl -s https://wordpractice.vercel.app/ | grep -o '/static/js/main\.[a-z0-9]*\.js' | head -1)
+BUNDLE=$(curl -s https://wordpractice-beta.vercel.app/ | grep -o '/static/js/main\.[a-z0-9]*\.js' | head -1)
 echo "bundle: $BUNDLE"
-curl -s "https://wordpractice.vercel.app$BUNDLE" | grep -c 'localhost:8000'
+curl -s "https://wordpractice-beta.vercel.app$BUNDLE" | grep -c 'localhost:8000'
 ```
 
 Expected: `grep -c` 印出 **0**。非 0 代表 `REACT_APP_API_URL` 沒生效，回 Step 3 補設再重新部署。若 `bundle` 那行是空的，代表抓不到 script 標籤，改成手動開 DevTools → Network 確認請求打的是 `/api/words/...`。
@@ -768,8 +777,8 @@ Expected: `grep -c` 印出 **0**。非 0 代表 `REACT_APP_API_URL` 沒生效，
 - [ ] **Step 6:【我】確認 rewrite 代理真的通**
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://wordpractice.vercel.app/api/health
-curl -s -o /dev/null -w '%{http_code}\n' https://wordpractice.vercel.app/api/words/deck
+curl -s -o /dev/null -w '%{http_code}\n' https://wordpractice-beta.vercel.app/api/health
+curl -s -o /dev/null -w '%{http_code}\n' https://wordpractice-beta.vercel.app/api/words/deck
 ```
 
 Expected: **200** 和 **401**。
@@ -779,10 +788,12 @@ Expected: **200** 和 **401**。
 - [ ] **Step 7:【我】確認快取防護沒有破洞**
 
 ```bash
-curl -sI https://wordpractice.vercel.app/api/words/deck | grep -i -E 'cache-control|x-vercel-cache'
+curl -s -D - -o /dev/null https://wordpractice-beta.vercel.app/api/words/deck | grep -i -E 'HTTP/|cache-control|x-vercel-cache'
 ```
 
-Expected: `cache-control: no-store`，且**沒有** `x-vercel-cache: HIT`。`/words/deck` 是每個使用者自己的單字，被 CDN 快取就是跨使用者外洩。
+Expected: **`HTTP/1.1 401`**、`cache-control: no-store`，且**沒有** `x-vercel-cache: HIT`。`/words/deck` 是每個使用者自己的單字，被 CDN 快取就是跨使用者外洩。
+
+**絕對不要用 `curl -sI`（HEAD）。** 後端的 `/health` 與 `/words/deck` 對 HEAD 回 **405**，而 405 也帶 `no-store`、也不是 `HIT` —— 用 HEAD 驗會綠燈通過，但驗到的是 405 的標頭而不是真正的 GET 回應（2026-10-11 實際踩到）。所以上面的 grep 多抓一個 `HTTP/`，讓狀態碼本身出現在證據裡。
 
 - [ ] **Step 8:【使用者】在瀏覽器上跑完整流程**
 
