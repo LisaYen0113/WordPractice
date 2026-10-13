@@ -1,6 +1,4 @@
 """限流:同一使用者每分鐘上限;超限 429 + Retry-After;時間過了自動恢復"""
-import uuid
-
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -9,35 +7,9 @@ from app.core.rate_limit import FixedWindowLimiter
 from app.main import app
 from app.routes import words_route
 from tests.auth_helpers import auth_headers
+from tests.helpers import FakeClock, word_detail
 
 client = TestClient(app, raise_server_exceptions=False)
-
-
-class FakeClock:
-    def __init__(self, now=1000.0):
-        self.now = now
-
-    def __call__(self):
-        return self.now
-
-    def advance(self, seconds):
-        self.now += seconds
-
-
-def _word_detail(word):
-    return {
-        "id": str(uuid.uuid4()),
-        "word": word,
-        "pos": "n.",
-        "definition": "蘋果",
-        "kk_pronunciation": "[ˈæpəl]",
-        "etymology": None,
-        "synonyms": [],
-        "antonyms": [],
-        "inflections": [],
-        "phrases": [],
-        "toeic_examples": [],
-    }
 
 
 class TestFixedWindowLimiter:
@@ -84,7 +56,7 @@ class TestFixedWindowLimiter:
 
 def test_fill_endpoint_returns_429_after_limit(monkeypatch):
     # 端到端:同一使用者連打超過上限(12/分)→ 之後回 429
-    monkeypatch.setattr(words_route, "fill_word_details", lambda word, user_id: _word_detail(word))
+    monkeypatch.setattr(words_route, "fill_word_details", lambda word, user_id: word_detail(word))
 
     headers = auth_headers()  # 同一位使用者
     for _ in range(words_route.FILL_REQUESTS_PER_MINUTE):

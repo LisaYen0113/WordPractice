@@ -17,7 +17,7 @@
 - **後端路由不帶 `/api` 前綴。** 前端一律打 `/api/...`，由 rewrite 吃掉前綴；`destination` 若把 `/api` 帶給後端，所有路由會 404。
 - **機密只由使用者自己在 Vercel 後台輸入。** 不得寫進任何檔案、不得貼進對話、不得出現在 commit 裡。`backend/.env` 與 `frontend/my-app/.env.local` 都已 gitignore，不要動它們、也不要讀出來貼出去。
 - **絕對不要對任何資料庫執行 `schema.sql`。** 那是唯一由人工負責的驗證步驟。
-- **`REACT_APP_DEMO_EMAIL` / `REACT_APP_DEMO_PASSWORD` 不要設。** 限流器在 serverless 上擋不住東西（spec D4），JWT 認證是唯一的門；設了等於把門打開給所有人消耗 Gemini 額度。
+- ~~**`REACT_APP_DEMO_EMAIL` / `REACT_APP_DEMO_PASSWORD` 不要設。** 限流器在 serverless 上擋不住東西（spec D4），JWT 認證是唯一的門；設了等於把門打開給所有人消耗 Gemini 額度。~~ **2026-10-13 反轉：要設。** 代價是正式站沒有訪客入口（功能缺失）。改由後端的示範帳號配額擋 AI 花費 —— spec D13、§7.3。**新約束：`DEMO_USER_ID`（示範帳號的 UUID）必須設在後端專案上**，否則配額靜默失效。
 - **Python 一律用 `backend/venv/Scripts/python.exe`。** 這台機器的裸 `python` 是 Microsoft Store 的 stub，`pytest` 也不在 PATH 上。
 - **測試指令一律 `cd backend && venv/Scripts/python.exe -m pytest <path> -q`。**
 - **後端錯誤訊息的語言：** 4xx（400/404/409/502）用**中文**，5xx 用**英文**。這是給人看的，不要混。
@@ -631,7 +631,7 @@ Vercel 後台 → Add New → Project → 匯入 `LisaYen0113/WordPractice`。
 
 - [ ] **Step 2:【使用者】設定環境變數**
 
-在 Deploy **之前**，於同一頁的 Environment Variables 填入以下六項。**機密值由你自己輸入，不要貼進對話。**
+在 Deploy **之前**，於同一頁的 Environment Variables 填入以下七項。**機密值由你自己輸入，不要貼進對話。**
 
 | 變數 | 值 | 必要性 |
 |---|---|---|
@@ -641,8 +641,11 @@ Vercel 後台 → Add New → Project → 匯入 `LisaYen0113/WordPractice`。
 | `SUPABASE_JWT_SECRET` | | 選填 |
 | `GEMINI_MODEL` | | 選填 |
 | `DATA_DIR` | `/tmp` | **必要** |
+| `DEMO_USER_ID` | 示範帳號的 Supabase UUID（**2026-10-13 新增**，spec D13） | **必要** |
 
 兩個陷阱：`SUPABASE_URL` 必須是**純專案網址** —— 帶 `/rest/v1` 或結尾斜線會在開機時被 `config.py:25` 的斜線數檢查擋下（這是刻意的，貼錯格式會拿到明確錯誤而不是難以追查的 401）。`DATA_DIR` 漏設不會讓 app 掛掉，但會讓檔案 log 與失敗佇列消失（Task 3 Step 6 會驗）。
+
+**`DEMO_USER_ID` 是 2026-10-13 補的閘門**（spec D13、§7.3）：公開 demo 帳密之後，這個帳號的付費 AI 呼叫被限成 3 次/小時。值從 Supabase 後台 **Authentication → Users** 複製那一列的 `id`，**不是 email**。漏設或填錯格式不會擋下任何請求，只會在 function log 留一行 ERROR 然後配額整條失效 —— Task 3 Step 7 附近的 log 檢查要一併看這行。
 
 - [ ] **Step 3:【使用者】部署**
 
@@ -751,10 +754,12 @@ Vercel 後台 → Add New → Project → 匯入 `LisaYen0113/WordPractice`。
 | `REACT_APP_API_URL` | `/api` |
 | `REACT_APP_SUPABASE_URL` | 同 `frontend/my-app/.env.local` |
 | `REACT_APP_SUPABASE_ANON_KEY` | 同 `.env.local`（anon 公開金鑰） |
-| `REACT_APP_DEMO_EMAIL` | **不要設** |
-| `REACT_APP_DEMO_PASSWORD` | **不要設** |
+| `REACT_APP_DEMO_EMAIL` | 同 `.env.local`（**2026-10-13 起要設**，見下） |
+| `REACT_APP_DEMO_PASSWORD` | 同 `.env.local` |
 
-`REACT_APP_DEMO_*` 留空是這一版設計裡最關鍵的一個「不設」：JWT 認證是唯一真正的門，設了 demo 帳密等於在公開網址上把門打開，任何人都能登入並消耗你的 Gemini 額度，而 serverless 上的限流器擋不住這件事。這三個值都在 gitignore 的 `.env.local` 裡，**不會進部署包**，必須在這裡重建一份。
+~~`REACT_APP_DEMO_*` 留空是這一版設計裡最關鍵的一個「不設」：JWT 認證是唯一真正的門，設了 demo 帳密等於在公開網址上把門打開，任何人都能登入並消耗你的 Gemini 額度，而 serverless 上的限流器擋不住這件事。~~
+
+**2026-10-13 反轉。** 留空的代價是正式站**沒有訪客入口**（`demoCredentials()` 回 `null` → 按鈕不渲染），這是功能缺失而不是安全設定。改為：這兩個值**要設**，AI 花費由後端新增的示範帳號配額擋著（**spec D13、§7.3**；後端專案另外要設 `DEMO_USER_ID`）。這三個值都在 gitignore 的 `.env.local` 裡，**不會進部署包**，必須在這裡重建一份。改了要**重新部署**（build-time 內嵌）。
 
 缺 `REACT_APP_SUPABASE_*` 的話網站會停在 `SetupNotice` 的「還差一步」畫面（不會白屏）。
 
@@ -804,6 +809,38 @@ Expected: **`HTTP/1.1 401`**、`cache-control: no-store`，且**沒有** `x-verc
 - [ ] **Step 9:【使用者】確認本機開發沒被影響**
 
 `uvicorn` + `npm start` 照舊跑得起來。Task 1 動了 `logger.py`，本機的預設路徑是 `backend/logs`，行為應該完全一樣。
+
+### Task 5: 恢復訪客入口並補上示範帳號配額（2026-10-13，spec D13／§7.3）
+
+Task 4 部署完成後才發現的缺口：**正式站沒有訪客入口**。原因是 §7.2 的 `REACT_APP_DEMO_*` 留空（當時的安全決策），不是壞掉 —— 但那是功能缺失。本 Task 把閘門搬到後端，然後恢復入口。
+
+- [x] **Step 1:【我】後端示範帳號配額（TDD）**
+
+新增 `backend/app/core/demo_quota.py`，並在 `words_route.py` 的 `/fill`、`tests_route.py` 的 `/submit_definition` 各掛一行 `dependencies=[Depends(limit_demo_ai)]`。測試：`backend/tests/test_demo_quota.py`（4 條，含「跨端點共用額度」「其他帳號不受影響」「未設 `DEMO_USER_ID` 時不生效」「視窗是一小時不是一分鐘」）。**全套件 270 passed。**
+
+- [ ] **Step 2:【使用者】關閉 Supabase 自助註冊（spec §7.4 第 1 項）**
+
+Supabase 後台 → Authentication → Sign In / Providers → Email → 關掉 **Allow new users to sign up**。**這一步必須在公開 demo 帳密之前做** —— 本 app 沒有註冊畫面，關掉不損失功能；沒關的話，任何人自開一個帳號就繞過 Step 1 的配額。
+
+- [ ] **Step 3:【使用者】把示範帳號的密碼換成高熵字串（spec §7.4 第 2 項）**
+
+現行密碼是 6 位純數字，而 demo email 已寫在公開 repo 的四個測試檔裡。密碼一旦公開就是永久公開。改完要同步更新 `frontend/my-app/.env.local` 與 Vercel 的 `REACT_APP_DEMO_PASSWORD`。
+
+- [ ] **Step 4:【使用者】設後端專案的 `DEMO_USER_ID`**
+
+值是示範帳號的 **UUID**（Supabase 後台 Authentication → Users 複製 `id`，不是 email）。設定後**重新部署**後端。
+
+- [ ] **Step 5:【使用者】設前端專案的 `REACT_APP_DEMO_EMAIL` / `REACT_APP_DEMO_PASSWORD`**
+
+值同 `frontend/my-app/.env.local`（Step 3 換過的新密碼）。這兩個是 **build-time** 內嵌，**設完必須重新部署前端**才會生效。
+
+- [ ] **Step 6:【使用者】驗證（對應 spec §9 第 10~13 項）**
+
+登入頁看得到「訪客展示(免登入)」按鈕；後端 function log 有一行 `Demo quota: 示範帳號 <uuid> ...`；示範帳號打第 4 次 `/api/words/fill` 回 **429**；`/auth/v1/settings` 的 `disable_signup` 是 `true`。
+
+- [ ] **Step 7:【使用者】先演練一次後台救援（spec §7.4 第 3 項）**
+
+持有公開帳密的人可以改掉示範帳號的密碼，讓訪客入口永久失效（email 是 `@example.com`，收不到重設信）。發布前先確認自己會從 Authentication → Users 救回來。
 
 ---
 

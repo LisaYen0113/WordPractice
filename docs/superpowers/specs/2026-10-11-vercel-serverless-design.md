@@ -76,7 +76,7 @@ Add a credit card or buy credit: https://fly.io/dashboard/yu-fan-yen/billing
 | D1 | 後端部署到 **Vercel Functions**，不是 Fly、不是 Render | 見 §1。不用卡、規格最好、與前端同平台 |
 | D2 | 前後端是**兩個獨立的 Vercel 專案**，用 rewrite 相連 | 兩者的 build 方式毫無共通點（CRA 靜態產物 vs Python 函式），而 Vercel 專案的 Root Directory 只能有一個。合併會逼出 `frontend/my-app/api/` 這種把後端塞進前端的畸形結構 |
 | D3 | 前端用 top-level rewrite **代理** `/api/:path*` → 後端專案網址 | **沿用上一版 D3**：瀏覽器只跟 Vercel 同源講話 → 完全沒有跨域請求，不必維護 CORS allowlist，後端真實網址也不會出現在前端 bundle 裡 |
-| D4 | 限流**維持記憶體實作，接受它在 serverless 上大幅弱化** | 使用者裁定「接受無狀態」。在 serverless 上每個實例各算各的、冷啟動歸零。**真正的門是 JWT 認證**（每個端點都要），加上 `REACT_APP_DEMO_*` 不設，能呼叫 AI 端點的只有使用者本人 —— 此時限流防的是自己的無窮迴圈。列為已知限制（§10），不假裝它有效 |
+| D4 | 限流**維持記憶體實作，接受它在 serverless 上大幅弱化** | 使用者裁定「接受無狀態」。在 serverless 上每個實例各算各的、冷啟動歸零。**真正的門是 JWT 認證**（每個端點都要）—— 沒有帳號就打不到任何端點，此時限流防的是自己的無窮迴圈。列為已知限制（§10），不假裝它有效。~~加上 `REACT_APP_DEMO_*` 不設，能呼叫 AI 端點的只有使用者本人~~ —— 2026-10-13 改由 D13 的示範帳號配額接手 |
 | D5 | 失敗佇列**維持寫檔，接受它在 serverless 上是唯寫的** | 同上裁定。`DATA_DIR=/tmp` 時它照常寫入、格式不變、測試照過，但**沒有排水路徑**：`/tmp` 隨實例消失，而 CLI 排水指令在沒有 SSH 的平台上叫不到。刻意不刪 —— 刪掉會讓「AI 產生成功但寫入 DB 失敗」這個情況完全失去痕跡。列為已知限制（§10） |
 | D6 | `DATA_DIR=/tmp` 由 **Vercel 環境變數**設定，不改程式預設值 | 本機不設 → 指回 `backend/`，行為與現在完全相同。與上一版 D6 同精神 |
 | D7 | **logger 的檔案 handler 必須容錯** | `logger.py:9` 在 **import 時**就 `LOG_DIR.mkdir()`。若 `DATA_DIR` 指向唯讀位置，整個 app 在 import 階段就掛掉，連 `/health` 都回不了 —— 症狀會是「部署成功但 500」，極難追。這是本設計唯一非改不可的程式碼 |
@@ -85,6 +85,7 @@ Add a credit card or buy credit: https://fly.io/dashboard/yu-fan-yen/billing
 | D10 | `src/api/client.js` **不改** | 沿用上一版 D10。預設值 `http://localhost:8000` 保留給本機 |
 | D11 | 明確**關閉後端專案的 Deployment Protection** | 後端專案若開了 Vercel Authentication，前端的 rewrite 會撞到登入牆而拿到 401/HTML 登入頁，症狀是「API 全部回傳一頁 HTML」。必須在驗證清單裡確認（§9） |
 | D12 | 不改用 Vercel container runtime | 沿用上一版 D11 的結論：官方文件明講 container 套用同一組 Vercel Functions 限制，解決不了根本問題 |
+| D13 | **設 `REACT_APP_DEMO_*`（恢復訪客入口），改用後端的示範帳號配額擋 AI 花費** | 2026-10-13 補做。D4 原本靠「不設 demo 帳密」關住付費 AI，代價是**正式站沒有訪客入口**（`demoCredentials()` 讀不到值就回 `null`，`LoginScreen` 的按鈕整顆不渲染）—— 這是功能缺失，不是安全設定。使用者裁定：不硬禁，改給示範帳號**小額配額**。見 §7.3 |
 
 ## 4. 架構
 
@@ -214,8 +215,11 @@ Task 1–3 已完成並 commit（`44c2443` DATA_DIR、`c3345ba` `/health`、`b20
 | `SUPABASE_JWT_SECRET` | | 選填 |
 | `GEMINI_MODEL` | | 選填 |
 | `DATA_DIR` | `/tmp` | **必要**（D6） |
+| `DEMO_USER_ID` | 示範帳號的 Supabase UUID | **必要**（D13；漏設 = 配額失效） |
 
 `SUPABASE_URL` 必須是**純專案網址**。`config.py:25` 會檢查斜線數恰為 2，帶 `/rest/v1` 或結尾斜線會在**開機時**被擋下 —— 這是刻意的，貼錯格式會拿到明確錯誤而不是難以追查的 401。
+
+⚠️ **`DEMO_USER_ID` 是 UUID，不是 email。** 從 Supabase 後台 **Authentication → Users** 複製示範帳號那一列的 `id`。填錯格式（例如填成 email）不會擋下請求，只會在啟動 log 留一行 ERROR、然後**配額整條失效** —— 這是刻意的設計取捨：本機開發不設它也能跑（否則維護示範字庫會被自己擋住），代價就是正式站漏設時必須靠那行 log 才看得見。§9 第 10 項就是在看這個。
 
 ⚠️ **`DATA_DIR` 漏設的後果**：預設值是 `backend/`，在 Vercel 上是唯讀的。有了 D7 的容錯，app 不會掛、`/health` 照回 200，但**檔案 log 與失敗佇列都不會產生**。這是可接受的降級（stdout 還在，Vercel 收的就是它），而且 **stderr 會有一行指名 `LOG_DIR` 路徑的 WARNING**（§5.3(b)）。§9 第 8 項就是在看這行警告有沒有出現 —— 有出現代表 `DATA_DIR` 沒設對。
 
@@ -228,13 +232,48 @@ Task 1–3 已完成並 commit（`44c2443` DATA_DIR、`c3345ba` `/health`、`b20
 | `REACT_APP_API_URL` | `/api` |
 | `REACT_APP_SUPABASE_URL` | 同 `frontend/my-app/.env.local` |
 | `REACT_APP_SUPABASE_ANON_KEY` | 同 `.env.local`（anon 公開金鑰） |
-| `REACT_APP_DEMO_EMAIL` / `REACT_APP_DEMO_PASSWORD` | **建議不設** |
+| `REACT_APP_DEMO_EMAIL` / `REACT_APP_DEMO_PASSWORD` | **要設**（D13）—— 不設就沒有訪客入口 |
 
 這些在 gitignore 的 `.env.local` 裡，**不會進部署包**，必須在 Vercel 專案設定裡重建一份。
 
-⚠️ **`REACT_APP_DEMO_*` 是這一版設計裡最關鍵的一個「不設」。** JWT 認證是唯一真正的門（D4），而設了 demo 帳密就等於把門打開給所有人 —— 公開網址上任何人都能登入並消耗你的 Gemini 額度。**限流器在 serverless 上擋不住這件事**（每個實例各算各的）。留空。
+⚠️ **`REACT_APP_DEMO_*` 是 build-time 內嵌的，設完必須重新部署前端才生效。** 沒設的話構不到錯誤，只是 `demoCredentials()` 回 `null`、`LoginScreen` 的「訪客展示(免登入)」按鈕整顆不渲染 —— **部署成功但功能靜默消失**，正是 2026-10-13 那次回報的症狀。
+
+⚠️ **公開 demo 帳密等於公開一個真實的 Supabase 帳號。** 它不只能燒 AI 額度，還能讀寫該帳號自己的複習清單與資料夾（`user_words`、`folders` 都以 `user_id` 為界，碰不到別人的資料）。AI 花費由 D13 的配額擋著，**字庫被亂改則沒有防線** —— 這是使用者明確接受的代價（示範字庫被改過就手動改回來）。
 
 缺 `REACT_APP_SUPABASE_*` 的話網站會停在 `SetupNotice` 的「還差一步」畫面（不會白屏）。
+
+### 7.3 示範帳號的付費 AI 配額（D13）
+
+公開 demo 帳密之後，任何人都能登入並**直接呼叫付費 AI 端點**（繞過 UI）。前端展示模式本身不呼叫它們（新增單字停用、文字測驗改自評），所以這道閘門擋的是直接打 API 的人。
+
+**兩個端點會打 Gemini**：`POST /words/fill`（生成單字卡）與 `POST /tests/submit_definition`（判分）。**兩者共用同一個配額** —— 在意的是「這個帳號能燒多少錢」，不是「單一端點被打了幾次」，所以 key 是 `demo-ai:{user_id}` 而不是帶端點名。
+
+| 項目 | 值 |
+|---|---|
+| 檔案 | `backend/app/core/demo_quota.py`（新）、`words_route.py`／`tests_route.py` 各掛一行 `dependencies=[Depends(limit_demo_ai)]` |
+| 額度 | **3 次 / 小時**，跨兩個端點合計 |
+| 認的對象 | `DEMO_USER_ID` 這個 UUID；其他帳號**完全不受影響**，只走原本的每分鐘限流 |
+| 超出時 | 429 + `Retry-After`（沿用 `FixedWindowLimiter` 的既有行為） |
+
+**這是「墊高門檻」不是「封死」**：計數器仍在記憶體（D4），多實例與冷啟動都會讓實際上限高於 3。要拿到跨實例的正確性，得跟 D4 一起把計數器搬進 Supabase（§11）。
+
+⚠️ **這道閘門擋的是「用示範帳號去打」，不是「打得到付費 AI」。** 2026-10-13 的安全審查發現：專案的 Supabase **開放自助註冊**（`disable_signup: false`、`mailer_autoconfirm: true`，已對正式專案查證）。任何人拿前端 bundle 裡的 anon key 打一次 `/auth/v1/signup` 就能拿到自己的帳號 —— 那個帳號不是示範帳號，**直接繞過這個配額**，只剩每實例的每分鐘限流。所以配額不是花費的界線。**關掉註冊（§7.4 第 1 項）才是。**
+
+漏設 `DEMO_USER_ID` 時整道閘門不生效 —— 本機開發就是這樣，才不會擋住維護示範字庫。**代價是正式站漏設等於靜默失效**，所以 `demo_quota.py` 在 import 時會印狀態：設對了是 INFO；格式不對一律 ERROR；未設時本機是 WARNING、**`VERCEL_ENV=production` 時是 ERROR**。看 function log 就能確認。
+
+### 7.4 發布 demo 帳密前的必做事項
+
+2026-10-13 安全審查的產出，**依重要性排序**。第 1 項是唯一會改變威脅模型的；其餘是風險已被接受、但要先知道的事。
+
+1. **關閉 Supabase 自助註冊**（Authentication → Sign In / Providers → Email → 關掉 *Allow new users to sign up*）。
+   **本 app 沒有註冊畫面** —— 前端只呼叫 `signInWithPassword`（`AuthContext.js`），沒有任何 `signUp`。關掉不損失功能，卻把「任何人自己開帳號燒 AI」這條路封死。**沒做這一步，3 次/小時的配額就只是裝飾。**
+2. **把示範帳號的密碼換成高熵字串。** 現行密碼是**6 位純數字**（10⁶ 空間），而 demo 的 email 已寫在四個測試檔裡（`WordApp.test.jsx`、`Header.test.jsx`、`LoginScreen.test.jsx`、`demoMode.test.js`）且 repo 是公開的 —— 也就是說「不設 `REACT_APP_DEMO_*`」這段期間，帳號的保護強度是公開 email + 6 位 PIN。密碼一旦公開就是永久公開，換一組不好猜的。
+3. **先演練一次後台救援。** 持有公開帳密的人**可以改掉那個帳號的密碼**（GoTrue 的 `PUT /auth/v1/user`），改完訪客入口就永久壞掉；而示範 email 是 `@example.com`，收不到信，自助重設不可用，只能從後台救。發布前先確認自己會救（Authentication → Users → 該帳號 → Reset password），並把步驟記在這裡。
+4. **決定 Gemini 端的預算護欄。** 應用層的配額（本節）與註冊開關都是「擋在門口」；真正能保證帳單上限的是 Google 那邊的金鑰配額／預算告警。目前**沒有設**。
+
+**另外兩件已接受、但文件原本沒寫到的**：
+- **共用 `words` 字庫是先寫先贏。** `/fill` 遇到同一個字會重用既有列（`words_service.py` 的 409 路徑），所以先填的人實質「佔用」了那個字在所有人字典裡的內容。示範帳號持有者可以藉此影響共用字庫。
+- **`word` 欄位會被插進 Gemini 的 prompt**，字元集受限（≤64、字母數字空白與 `-'`）但不是零風險的 prompt injection 面。影響限於那一列生成出來的內容。
 
 ## 8. 部署與維運
 
@@ -268,12 +307,19 @@ push 到 GitHub 即自動部署
 7. 隨機挑一個 `/api/...` 回應，確認帶 `Cache-Control: no-store`，且不含 `x-vercel-cache: HIT`。
 8. **`DATA_DIR=/tmp` 確實生效**：在 Vercel 的 function log 裡確認 app 正常啟動，且沒有出現「目錄不可寫」的降級訊息。
 9. 本機照舊 `uvicorn` + `npm start`，確認開發流程沒被影響。
+10. **訪客入口回來了**：前端網域打開登入頁，要看得到「訪客展示(免登入)」按鈕。看不到就是 `REACT_APP_DEMO_*` 沒設或**沒重新部署**（build-time 變數，設完不重部署不會生效）。
+11. **配額有生效**：用示範帳密登入、直接打 4 次 `/api/words/fill`（DevTools console 或 curl 帶該帳號的 token），第 4 次要回 **429**。都回 200 = `DEMO_USER_ID` 沒設或填錯格式，去後端 function log 找那行 `Demo quota:` 的 ERROR。
+12. 後端 function log 裡有一行 `Demo quota: 示範帳號 <uuid> 的付費 AI 上限 3 次 / 60 分鐘`。**沒看到這行**就代表環境變數沒進到部署。
+13. **自助註冊確實關了（§7.4 第 1 項）**：`curl -s "$SUPABASE_URL/auth/v1/settings" -H "apikey: $ANON_KEY"` 的 `disable_signup` 要是 `true`。**這項沒過，配額就沒有意義** —— 任何人都能自開帳號繞過。
 
 ## 10. 已知限制與取捨
 
 **這一版新增的（使用者 2026-10-11 明確裁定接受）**
 
-- **限流器在 serverless 上實質只剩裝飾。** 每個實例各算各的、冷啟動歸零。真正的門是 JWT 認證 + 不設 demo 帳密。要修就得把計數器搬進 Supabase（§11）。
+- **限流器在 serverless 上實質只剩裝飾。** 每個實例各算各的、冷啟動歸零。真正的門是 JWT 認證（**任何帳號**都能過，所以它擋的是「沒有帳號的人」）。要修就得把計數器搬進 Supabase（§11）。
+- **示範帳號的 3 次/小時配額同樣是每實例各算各的**，實際上限會高於 3（D13、§7.3）。**而且它只擋「用示範帳號」那條路** —— Supabase 自助註冊若沒關（§7.4），任何人自開帳號就繞過去了。這是墊高門檻而非封死。
+- **公開 demo 帳密後，示範帳號自己的字庫與資料夾是公開可寫的**（`folders` 建立／改名／刪除、熟悉度標記；單字刪除功能還不存在）。租戶邊界仍有效 —— 逐條核對過 `user_words`／`folders`／`mistakes` 的 DAO 查詢與 RLS，碰不到其他使用者的資料 —— 但示範字庫被改亂沒有防線，只有手動改回來。2026-10-13 使用者明確裁定接受。
+- **持有公開帳密的人可以改掉示範帳號的密碼，讓訪客入口永久失效**（GoTrue 的 `PUT /auth/v1/user`；示範 email 收不到信，自助重設不可用，只能從後台救）。這是原設計沒有列到的風險，2026-10-13 補記；救援步驟見 §7.4 第 3 項。
 - **失敗單字佇列在 serverless 上是唯寫的。** `DATA_DIR=/tmp` 時照常寫入、格式不變，但 `/tmp` 隨實例消失，且沒有排水路徑。刻意保留而不刪除，是為了讓「AI 產生成功但寫入 DB 失敗」留下痕跡。要修就得搬進 Supabase（§11）。
 - **`DATA_DIR` 漏設會失去檔案 log**（stdout 仍在，且 stderr 有警告，不致命）。見 §7.1。
 - **`/tmp` 上的 `RotatingFileHandler` 沒有實際觀察過。** `maxBytes=2MB` × `backupCount=5` 上限 12MB，遠低於 Vercel `/tmp` 的 512MB，但輪替在冷啟動之間的行為（每個新實例都是空目錄）只是推論。不影響正確性，只影響「log 能往回追多久」。
@@ -294,8 +340,9 @@ push 到 GitHub 即自動部署
 ## 11. 後續（不在本批）
 
 - 失敗單字佇列搬進 Supabase 表，讓補救機制不再依賴實例。
-- 限流改用 Supabase 共享計數器，取回跨實例的正確性。
+- 限流改用 Supabase 共享計數器，取回跨實例的正確性（一併讓 D13 的示範帳號配額變成真正的硬上限）。
 - 前端 build 時若缺 `REACT_APP_API_URL`，在 production build 直接報錯，避免靜默指回 localhost。
 - 加共享密鑰標頭，讓後端只接受來自前端的流量。
+- **在 Google 端設 `GEMINI_API_KEY` 的請求配額或預算告警** —— 應用層的限流與註冊開關都擋在門口，這是唯一能保證帳單上限的一層（§7.4 第 4 項）。
 - 讓 `DATA_DIR` 降級反映在 `/health` 上（例如回 503 而不是照回 200）。現在只看得到 log 警告，而且只有去翻 function log 的人才看得到。
 - ~~把 `DATA_DIR` 的降級寫成啟動時的明確警告，而不是靜默~~ —— 已於本批完成（§5.3）。

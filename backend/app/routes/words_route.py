@@ -4,6 +4,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.demo_quota import limit_demo_ai
 from app.core.logger import logger
 from app.core.rate_limit import rate_limited
 from app.daos.user_words_dao import get_all_user_words, get_user_words_due_today
@@ -81,7 +82,10 @@ def get_deck(
     return _build_cards(get_all_user_words(user_id))
 
 
-@router.post("/fill")
+# dependencies= 而非參數:這個依賴不回傳值,只是攔下示範帳號的額度。
+# 它比下面參數層的每分鐘限流先跑(FastAPI 把 decorator 層的依賴插在 dependencies[0],
+# 見 fastapi/routing.py 的 dependencies.insert(0, ...));兩者都回 429,順序不影響結果
+@router.post("/fill", dependencies=[Depends(limit_demo_ai)])
 def api_fill_word(
     request: NewWordRequest,
     user_id: uuid.UUID = Depends(rate_limited("fill", FILL_REQUESTS_PER_MINUTE)),

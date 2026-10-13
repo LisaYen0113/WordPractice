@@ -3,6 +3,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.demo_quota import limit_demo_ai
 from app.core.rate_limit import rate_limited
 from app.core.scoring import CORRECT_THRESHOLD
 from app.schemas.test import DefinitionSubmission
@@ -14,7 +15,8 @@ router = APIRouter()
 SUBMIT_REQUESTS_PER_MINUTE = 30
 
 
-@router.post("/submit_definition")
+# 與 /words/fill 共用同一個示範帳號配額(額度屬於帳號,不是端點)
+@router.post("/submit_definition", dependencies=[Depends(limit_demo_ai)])
 def submit_definition(
     sub: DefinitionSubmission,
     user_id: uuid.UUID = Depends(rate_limited("submit_definition", SUBMIT_REQUESTS_PER_MINUTE)),
